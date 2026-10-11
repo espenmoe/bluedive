@@ -67,9 +67,11 @@ extension View {
     /// inside a pushed page, `@Environment(\.dismiss)` only pops the page. On iOS the view
     /// is returned unchanged, since the sheet can be swiped down from any page.
     ///
-    /// On macOS it also sets `\.isPushedInSheet`, so a page that is shown both in the main
-    /// window and inside a sheet (e.g. `DiveDetailView`) can place its utility items with
-    /// `.sheetPrimaryAction` instead of `.primaryAction` when it is in a sheet.
+    /// On macOS it also sets `\.sheetDismiss` (and so `\.isPushedInSheet`): a page shown both
+    /// in the main window and inside a sheet (e.g. `DiveDetailView`, `SpeciesDetailView`)
+    /// places its utility items with `.sheetPrimaryAction` instead of `.primaryAction` in a
+    /// sheet, and gives the pages it pushes the same close button with
+    /// `.closeSheetButtonOnMac(sheetDismiss)`.
     func closeSheetButtonOnMac(action: @escaping () -> Void) -> some View {
         #if os(macOS)
         self
@@ -79,25 +81,68 @@ extension View {
                         .keyboardShortcut(.escape, modifiers: [])
                 }
             }
-            .environment(\.isPushedInSheet, true)
+            .environment(\.sheetDismiss, SheetDismissAction(action: action))
+        #else
+        self
+        #endif
+    }
+
+    /// `closeSheetButtonOnMac(action:)` for a page that pushes further pages: pass its
+    /// `@Environment(\.sheetDismiss)` — the sheet's close action when it is itself inside a
+    /// sheet, nil in the main window (nothing is added). On iOS the view is returned unchanged.
+    @ViewBuilder
+    func closeSheetButtonOnMac(_ sheetDismiss: SheetDismissAction?) -> some View {
+        #if os(macOS)
+        if let sheetDismiss {
+            closeSheetButtonOnMac(action: sheetDismiss.action)
+        } else {
+            self
+        }
         #else
         self
         #endif
     }
 }
 
-private struct IsPushedInSheetKey: EnvironmentKey {
-    static let defaultValue = false
+/// Closes the sheet a page is pushed in (see `closeSheetButtonOnMac`).
+struct SheetDismissAction {
+    let action: () -> Void
+    func callAsFunction() { action() }
+}
+
+private struct SheetDismissKey: EnvironmentKey {
+    static let defaultValue: SheetDismissAction? = nil
+}
+
+/// Shows the Dives tab's list (after a screen set its filter), e.g. "View Dives with This
+/// Critter". Set by MainTabView on the Marine Life tab; nil elsewhere (the button is hidden).
+struct ShowDiveListAction {
+    let action: () -> Void
+    func callAsFunction() { action() }
+}
+
+private struct ShowDiveListKey: EnvironmentKey {
+    static let defaultValue: ShowDiveListAction? = nil
 }
 
 extension EnvironmentValues {
-    /// True for a page pushed inside a sheet's NavigationStack on macOS (set by
-    /// `closeSheetButtonOnMac`). In a sheet, macOS draws a `.primaryAction` toolbar item as
-    /// the sheet's accent-filled default button, so such a page uses `.sheetPrimaryAction`
-    /// for its utility items. Always false on iOS.
-    var isPushedInSheet: Bool {
-        get { self[IsPushedInSheetKey.self] }
-        set { self[IsPushedInSheetKey.self] = newValue }
+    /// The close action of the sheet a page is pushed in, on macOS (set by
+    /// `closeSheetButtonOnMac`); nil in the main window, and always nil on iOS (a sheet is
+    /// swiped down there). The one "where am I presented" value for dual-use pages.
+    var sheetDismiss: SheetDismissAction? {
+        get { self[SheetDismissKey.self] }
+        set { self[SheetDismissKey.self] = newValue }
+    }
+
+    /// True for a page pushed inside a sheet's NavigationStack on macOS. In a sheet, macOS
+    /// draws a `.primaryAction` toolbar item as the sheet's accent-filled default button, so
+    /// such a page uses `.sheetPrimaryAction` for its utility items. Always false on iOS.
+    var isPushedInSheet: Bool { sheetDismiss != nil }
+
+    /// See `ShowDiveListAction`.
+    var showDiveList: ShowDiveListAction? {
+        get { self[ShowDiveListKey.self] }
+        set { self[ShowDiveListKey.self] = newValue }
     }
 }
 
@@ -389,6 +434,11 @@ extension View {
     func standardSheetPresentation(dragIndicator: Visibility = .visible) -> some View {
         #if os(macOS)
         self.modifier(AppLanguageSheetLocale())
+            // A sheet window inherits custom environment values: its root starts outside any
+            // pushed-in-sheet context (`sheetDismiss` of the page that presented it) and
+            // without the Marine Life tab's `showDiveList`.
+            .environment(\.sheetDismiss, nil)
+            .environment(\.showDiveList, nil)
             .presentationSizing(.page)
             .presentationDetents([.large])
             .presentationDragIndicator(dragIndicator)

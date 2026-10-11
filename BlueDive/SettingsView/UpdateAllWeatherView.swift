@@ -203,7 +203,7 @@ struct UpdateAllWeatherView: View {
     }
 
     /// Reads only the fields needed (never profiles or photos), in its own context, and returns
-    /// identifiers only. A plain fetch, not a @Query (CLAUDE.md: ContentView is the only
+    /// identifiers only. A plain fetch, not a @Query (CLAUDE.md: DiveDataFeeder is the only
     /// @Query Dive owner).
     nonisolated private static func loadCandidates(container: ModelContainer) -> [Candidate] {
         let context = ModelContext(container)

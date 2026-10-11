@@ -189,8 +189,8 @@ func resolveGearDiverName(forSerial computerSerial: String?, in context: ModelCo
 ///
 /// Attached once, behind MainTabView's TabView, so it stays mounted and updating whatever
 /// tab is selected — including while the user adds gear or documents on the Equipment or
-/// Documents tab, or iCloud delivers them from another device. ContentView (the Dives tab)
-/// still owns the only Dive @Query and feeds the dive half of the list; this view owns the
+/// Documents tab, or iCloud delivers them from another device. DiveDataFeeder (next to it)
+/// owns the only Dive @Query and feeds the dive half of the list; this view owns the
 /// only Gear/Certification/DivingInsurance queries used for diver names, so no screen needs
 /// its own queries just to build a diver list.
 struct DiverSourcesFeeder: View {

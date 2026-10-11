@@ -306,7 +306,7 @@ struct BluetoothScannerView: View {
             // Write-guarded: `.downloading(current:total:)` is reassigned on every
             // libdivecomputer progress callback (many times per second), and every one of those
             // maps to the same Bool. Writing the binding unconditionally would invalidate the
-            // presenting ContentView — the app's single `@Query Dive` owner — on a hot path.
+            // presenting ContentView (the dive list) on a hot path.
             .onChange(of: syncState, initial: true) { _, newState in
                 let newValue = Self.isTeardownUnsafe(newState)
                 if isTeardownUnsafe != newValue {

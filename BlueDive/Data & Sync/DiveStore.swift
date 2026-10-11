@@ -141,6 +141,14 @@ final class DiveStore {
 
     // MARK: - Derived / Cached State
     private(set) var dives: [Dive] = []
+
+    /// The dives of the latest `@Query` delivery (DiveDataFeeder), newest first, without any
+    /// deleted since: the list for actions over all dives (import duplicate check, export,
+    /// add-dive surface interval). `dives` is the same list once the debounced rebuild has run.
+    /// For actions: its latest-delivery part is not observed, so a view body uses `dives`.
+    var currentDives: [Dive] {
+        (latestQueryDives ?? dives).filter { !$0.isDeleted && $0.modelContext != nil }
+    }
     private(set) var diveIndexLookup: [UUID: Int] = [:]
     private(set) var cachedFilteredDives: [Dive] = []
     private(set) var cachedShowGrouped: Bool = false
@@ -160,7 +168,7 @@ final class DiveStore {
     private var cachedInsurances: [DivingInsurance] = []
     private var cachedGear: [Gear] = []
     private var cachedCertifications: [Certification] = []
-    // cachedUniqueDivers has two independent feeders (ContentView for dives,
+    // cachedUniqueDivers has two independent feeders (DiveDataFeeder for dives,
     // DiverSourcesFeeder for gear/certifications/insurance) whose first calls can arrive in
     // either order at launch. Until both halves have arrived once, a published list would be
     // incomplete but non-empty — enough for diverFilterReset to clear a persisted diver
@@ -197,6 +205,8 @@ final class DiveStore {
     // See applyRemoteHistory(container:). Kept here, not in RemoteChangeFeeder, so the
     // position survives the feeder being recreated (e.g. a macOS window closed and reopened).
     @ObservationIgnored private var remoteHistoryToken: DefaultHistoryToken?
+    /// The history position whose over-cap sighting edits already bumped sightingsVersion.
+    @ObservationIgnored private var sightingsBumpedToken: DefaultHistoryToken?
     /// Starting point of the first history fetch. Set at launch, before the first @Query
     /// delivery, so no transaction between launch and the first rebuild is missed.
     @ObservationIgnored private var remoteHistoryBaseline = Date()
@@ -220,10 +230,60 @@ final class DiveStore {
     @ObservationIgnored private var remoteHistoryContainer: ModelContainer?
     /// Bumped whenever the fish/photo badge caches change; see scheduleAggregation.
     @ObservationIgnored private var badgeCacheGeneration = 0
-    /// Bumped on every full rebuild and every badge refresh — local sighting saves (a quantity
-    /// or species-link edit leaves the summaries unchanged) and remote fish changes — so the
-    /// Marine Life statistics know to recompute.
-    private(set) var marineLifeVersion = 0
+    /// Changes whenever a sighting (`MarineSight`) or the dives they belong to may have
+    /// changed, here or on another device: every full rebuild (dive membership), every badge
+    /// refresh (local sighting saves — a quantity or species-link edit leaves the summaries
+    /// unchanged — and remote fish added, removed or renamed), and remote quantity or
+    /// species-link edits. A signal for screens that read sightings (Marine Life, a species
+    /// page) to recompute; a bump may be redundant, so a reader keys on it and skips
+    /// recomputing when nothing it reads changed.
+    private(set) var sightingsVersion = 0
+    /// One sighting read in progress (see sightingValues).
+    private final class SightingRead {
+        let task: Task<[SightingReader.Value], Never>
+        /// Callers still waiting for it and not cancelled.
+        var interested = 0
+        init(task: Task<[SightingReader.Value], Never>) { self.task = task }
+    }
+    /// The sighting reads in progress, by key.
+    @ObservationIgnored private var sightingReads: [String: SightingRead] = [:]
+
+    /// Every sighting as plain values, read from the store off the main thread
+    /// (`SightingReader`: a pass over 50 000 sightings takes most of a second). The read's key
+    /// is the sightings version, the diver, and the caller's `namesKey` (what `speciesByName`
+    /// was built from). Callers asking for the same key share one read; a read is cancelled
+    /// once every caller waiting for it was cancelled (a screen gone, or a newer pass started:
+    /// cancel the calling task to give up). Nil: the read was cancelled — drop the pass.
+    func sightingValues(diverName: String?, speciesByName: [String: PersistentIdentifier],
+                        namesKey: Int, container: ModelContainer) async -> [SightingReader.Value]? {
+        let key = "\(sightingsVersion)|\(diverName ?? "")|\(namesKey)"
+        let read: SightingRead
+        if let shared = sightingReads[key] {
+            read = shared
+        } else {
+            read = SightingRead(task: Task.detached(priority: .userInitiated) {
+                SightingReader.read(container: container, diverName: diverName, speciesByName: speciesByName)
+            })
+            sightingReads[key] = read
+        }
+        read.interested += 1
+        let values = await withTaskCancellationHandler {
+            await read.task.value
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.dropInterest(in: read, key: key) }
+        }
+        // Not kept once done (only this read's own entry): a later pass reads again.
+        if sightingReads[key] === read { sightingReads[key] = nil }
+        return read.task.isCancelled ? nil : values
+    }
+
+    /// A caller of `read` was cancelled: the read is cancelled when nobody else waits for it.
+    private func dropInterest(in read: SightingRead, key: String) {
+        read.interested -= 1
+        guard read.interested <= 0 else { return }
+        read.task.cancel()
+        if sightingReads[key] === read { sightingReads[key] = nil }
+    }
 
     // MARK: - Background Tasks
     private var searchDebounceTask: Task<Void, Never>?
@@ -435,8 +495,8 @@ final class DiveStore {
         self.hasReceivedDives = true
         self.cachedSelectedDiver = selectedDiver
         self.cachedMarineSights = allMarineSights
-        self.marineLifeVersion &+= 1
-        // Also covers ContentView's first-mount rebuild, which does not go through scheduleRebuild.
+        self.sightingsVersion &+= 1
+        // Also covers DiveDataFeeder's first rebuild, which does not go through scheduleRebuild.
         self.latestQueryDives = dives
         self.latestQuerySights = allMarineSights
         // Phase 1 — Fast synchronous work on MainActor. Must complete before returning
@@ -529,8 +589,7 @@ final class DiveStore {
             let updateFishCaches = self.aggregationIncludesFishCaches
             self.aggregationIncludesFishCaches = false
             // The store writes the widget's App Group data itself whenever the fingerprint
-            // changes, so remote edits reach the widget even while the Dives tab (ContentView)
-            // is not shown. Built from the summary snapshot, never from `dives`: a dive deleted
+            // changes, so remote edits reach the widget whatever tab is shown. Built from the summary snapshot, never from `dives`: a dive deleted
             // on another device may have merged during the await above.
             if result.widgetFingerprint != self.cachedWidgetFingerprint {
                 self.cachedWidgetFingerprint = result.widgetFingerprint
@@ -707,7 +766,7 @@ final class DiveStore {
     func refreshBadgeSets(for diveID: UUID, in dives: [Dive], showFilterSheet: Bool, selectedDiver: String) {
         guard let dive = dives.first(where: { $0.id == diveID }) else { return }
         badgeCacheGeneration &+= 1
-        marineLifeVersion &+= 1
+        sightingsVersion &+= 1
         let hasFish = !(dive.seenFish?.isEmpty ?? true)
         if hasFish { cachedDivesWithFish.insert(diveID) } else { cachedDivesWithFish.remove(diveID) }
         let hasPhotos = Self.hasPhotos(dive)
@@ -786,7 +845,7 @@ final class DiveStore {
         let timestamp: TimeInterval
     }
 
-    /// Writes the widget's App Group data from live dives (ContentView, which holds the
+    /// Writes the widget's App Group data from live dives (DiveDataFeeder, which holds the
     /// current @Query result).
     func updateWidgetDiveData(dives: [Dive]) {
         // Capture value types on the main thread; computation runs on a background task.
@@ -896,7 +955,7 @@ final class DiveStore {
     // MARK: - Remote Changes (iCloud)
     //
     // Edits another device makes to an existing dive arrive through CloudKit as persistent-
-    // history transactions. They change no dive membership, so ContentView's @Query path never
+    // history transactions. They change no dive membership, so the @Query path (DiveDataFeeder) never
     // rebuilds for them (SwiftData models compare by identity, and scheduleRebuild skips when
     // the dive IDs are unchanged). RemoteChangeFeeder calls applyRemoteHistory(container:)
     // after each burst of .NSPersistentStoreRemoteChange notifications; it reads the new
@@ -947,12 +1006,20 @@ final class DiveStore {
         var deletedPIDs: Set<PersistentIdentifier> = []
         /// MarineSight rows whose name changed; resolved to their parent dives' badges.
         var renamedSightPIDs: Set<PersistentIdentifier> = []
+        /// MarineSight rows whose quantity or species link changed: no dive row or badge shows
+        /// them, but Marine Life's statistics do (sightingsVersion, once merged).
+        var sightDetailPIDs: Set<PersistentIdentifier> = []
+        /// A dive's list of sightings changed (`seenFish`): a sighting added or removed —
+        /// possibly one replaced by another of the same name (a new quantity), which leaves the
+        /// fish names, and so the badges, unchanged.
+        var seenFishChanged = false
         /// Dives inserted by this app's own saves (permanent identifiers), used to remap dives
         /// recorded under a temporary identifier before they were first saved.
         var localInsertedPIDs: Set<PersistentIdentifier> = []
         var updatedPIDs: Set<PersistentIdentifier> { listPIDs.union(rowPIDs).union(badgePIDs) }
         var isEmpty: Bool {
-            updatedPIDs.isEmpty && deletedPIDs.isEmpty && renamedSightPIDs.isEmpty && localInsertedPIDs.isEmpty
+            updatedPIDs.isEmpty && deletedPIDs.isEmpty && renamedSightPIDs.isEmpty && sightDetailPIDs.isEmpty
+                && localInsertedPIDs.isEmpty
         }
     }
 
@@ -965,12 +1032,15 @@ final class DiveStore {
         var badgePIDs: Set<PersistentIdentifier> = []
         var photoPIDs: Set<PersistentIdentifier> = []
         var renamedSightPIDs: Set<PersistentIdentifier> = []
+        var sightDetailPIDs: Set<PersistentIdentifier> = []
+        var seenFishChanged = false
         var deletedPIDs: Set<PersistentIdentifier> = []
         var localInsertedPIDs: Set<PersistentIdentifier> = []
 
         var isEmpty: Bool {
             !fullRebuild && samplePIDs.isEmpty && badgePIDs.isEmpty && photoPIDs.isEmpty
-                && renamedSightPIDs.isEmpty && deletedPIDs.isEmpty && localInsertedPIDs.isEmpty
+                && renamedSightPIDs.isEmpty && sightDetailPIDs.isEmpty
+                && deletedPIDs.isEmpty && localInsertedPIDs.isEmpty
         }
 
         /// Notes one page; `listedUpdates` are its updates to dives this device lists.
@@ -980,6 +1050,8 @@ final class DiveStore {
             badgePIDs.formUnion(page.badgePIDs)
             photoPIDs.formUnion(page.photoPIDs)
             renamedSightPIDs.formUnion(page.renamedSightPIDs)
+            sightDetailPIDs.formUnion(page.sightDetailPIDs)
+            seenFishChanged = seenFishChanged || page.seenFishChanged
             deletedPIDs.formUnion(page.deletedPIDs)
             localInsertedPIDs.formUnion(page.localInsertedPIDs)
         }
@@ -989,6 +1061,8 @@ final class DiveStore {
             batch.badgePIDs.formUnion(badgePIDs)
             batch.photoPIDs.formUnion(photoPIDs)
             batch.renamedSightPIDs.formUnion(renamedSightPIDs)
+            batch.sightDetailPIDs.formUnion(sightDetailPIDs)
+            batch.seenFishChanged = batch.seenFishChanged || seenFishChanged
             batch.deletedPIDs.formUnion(deletedPIDs)
             batch.localInsertedPIDs.formUnion(localInsertedPIDs)
         }
@@ -999,6 +1073,13 @@ final class DiveStore {
         let summary: DiveSummary
         let fishNames: [String]?
         let photoCount: Int?
+    }
+
+    /// One sighting whose quantity or species link changed, as committed in the store.
+    private struct RemoteSightExpectation {
+        let divePID: PersistentIdentifier
+        let count: Int
+        let speciesPID: PersistentIdentifier?
     }
 
     /// Applies other devices' edits to existing dives. Called by RemoteChangeFeeder; runs are
@@ -1080,6 +1161,22 @@ final class DiveStore {
             return
         }
 
+        // Sighting edits or renamed fish above their caps (no merge wait, no badge refresh for
+        // them): Marine Life reads its sightings from the store (SightingReader), so it is
+        // told at once, without the main context's merge. Before any deferral below, and once per history position: a deferred batch is
+        // re-read from the same position on every remote-change notification. An empty last
+        // fetch (a backlog that was an exact multiple of the page size) has no token of its
+        // own: the position reached by the noted pages stands for it. (Sightings added or
+        // removed need nothing here: they come with a dive added or deleted — DiveDataFeeder's
+        // @Query, then a full rebuild — or with a seenFish update on their dive, which bumps
+        // the version once merged, below.)
+        if batch.sightDetailPIDs.count > Self.remoteRenamedSightLimit
+            || batch.renamedSightPIDs.count > Self.remoteRenamedSightLimit,
+           let position = newestToken ?? remoteHistoryToken, position != sightingsBumpedToken {
+            sightingsVersion &+= 1
+            sightingsBumpedToken = position
+        }
+
         // A deferred batch re-run before its deletions reached the list: nothing to do yet (a
         // deleted identifier cannot come back, so "still listed" means "unchanged"). The next
         // rebuild re-runs it.
@@ -1103,6 +1200,15 @@ final class DiveStore {
             logRemoteHistory("\(batch.renamedSightPIDs.count) renamed fish: names refresh at the next membership change")
         }
 
+        // Sightings whose quantity or species link changed, on dives this device lists (same
+        // cap as renamed fish; above it Marine Life was refreshed at once, see above).
+        var sightExpectations: [PersistentIdentifier: RemoteSightExpectation] = [:]
+        if batch.sightDetailPIDs.count <= Self.remoteRenamedSightLimit {
+            sightExpectations = await freshSightExpectations(for: batch.sightDetailPIDs, in: fresh)
+        } else {
+            logRemoteHistory("\(batch.sightDetailPIDs.count) sighting edits: Marine Life refreshed without the merge wait")
+        }
+
         // Only dives this device lists can be patched; the others arrive through the @Query.
         let knownUpdated = batch.updatedPIDs.filter { diveIDByPID[$0] != nil }
         let fullRebuild = fullRebuildPending || knownUpdated.count > Self.remoteDiveUpdateLimit
@@ -1122,9 +1228,13 @@ final class DiveStore {
         } else {
             checked = knownUpdated
         }
-        let committed = await freshExpectations(for: checked, badgePIDs: batch.badgePIDs,
+        // The sightings' dives are checked too: the wait reads their sightings in the main
+        // context, which is safe only for dives verified to still exist.
+        let committed = await freshExpectations(for: checked.union(sightExpectations.values.map(\.divePID)),
+                                                badgePIDs: batch.badgePIDs,
                                                 photoPIDs: batch.photoPIDs, in: fresh)
         let merged = await waitForMainContextMerge(of: committed.expectations,
+                                                   sights: sightExpectations,
                                                    deletedHints: batch.deletedPIDs.union(committed.missing),
                                                    in: fresh)
         // No await from here on: nothing can merge into the main context before the caches are
@@ -1166,9 +1276,16 @@ final class DiveStore {
         if badgeIDs.count > Self.remoteBadgeRefreshLimit {
             logRemoteHistory("\(badgeIDs.count) dives with fish/photo changes: badges refresh at the next membership change")
             badgeIDs = []
+            // Their sightings changed all the same: Marine Life reads the store (SightingReader),
+            // so it can recompute now, without the badge refresh.
+            sightingsVersion &+= 1
         }
 
         if !badgeIDs.isEmpty { refreshBadgeCaches(for: badgeIDs, photos: photoIDs) }
+        // A sighting added or removed on another device: Marine Life recomputes even when the
+        // dive's fish names are unchanged (a sighting replaced by one of the same name with a
+        // new quantity). Merged by now; a full rebuild below bumps the version itself.
+        if batch.seenFishChanged && !rebuilds { sightingsVersion &+= 1 }
         if rebuilds {
             commitListRebuild()
             if !badgeIDs.isEmpty { scheduleAggregation(updateFishCaches: true) }
@@ -1183,6 +1300,10 @@ final class DiveStore {
             }
             scheduleAggregation(updateFishCaches: !badgeIDs.isEmpty)
         }
+
+        // Marine Life recomputes (only while shown) now that the main context shows the new
+        // quantities and species links (a full rebuild bumps the version too).
+        if !sightExpectations.isEmpty && !rebuilds { sightingsVersion &+= 1 }
 
         let outcome = rebuilds ? "full rebuild" : "patched \(rowIDs.union(badgeIDs).count) dive(s)"
         if merged || remoteRetriedAfterTimeout {
@@ -1349,7 +1470,7 @@ final class DiveStore {
                 switch change {
                 case .insert:
                     // New dives (and new fish, whose dive also gets a seenFish update) reach the
-                    // list through the @Query membership path.
+                    // list through the @Query membership path (DiveDataFeeder, always mounted).
                     continue
                 case .update(let update):
                     if let sightUpdate = update as? DefaultHistoryUpdate<MarineSight> {
@@ -1359,6 +1480,12 @@ final class DiveStore {
                             ($0 as PartialKeyPath<MarineSight>) == \MarineSight.name
                         }
                         if renamed { batch.renamedSightPIDs.insert(sightUpdate.changedPersistentIdentifier) }
+                        // A quantity or species link changes only Marine Life's statistics.
+                        let detailChanged = sightUpdate.updatedAttributes.contains {
+                            let key = $0 as PartialKeyPath<MarineSight>
+                            return key == \MarineSight.count || key == \MarineSight.species
+                        }
+                        if detailChanged { batch.sightDetailPIDs.insert(sightUpdate.changedPersistentIdentifier) }
                         continue
                     }
                     guard let diveUpdate = update as? DefaultHistoryUpdate<Dive> else { continue }
@@ -1370,6 +1497,7 @@ final class DiveStore {
                         batch.rowPIDs.insert(pid)
                     }
                     if !keys.isDisjoint(with: badgeKeys) { batch.badgePIDs.insert(pid) }
+                    if keys.contains(\Dive.seenFish) { batch.seenFishChanged = true }
                     if !keys.isDisjoint(with: photoKeys) { batch.photoPIDs.insert(pid) }
                 case .delete(let delete):
                     if delete.changedPersistentIdentifier.entityName == "Dive" {
@@ -1434,6 +1562,7 @@ final class DiveStore {
     /// context has, or defers if a deletion is pending.
     private func waitForMainContextMerge(
         of expectations: [PersistentIdentifier: RemoteDiveExpectation],
+        sights: [PersistentIdentifier: RemoteSightExpectation] = [:],
         deletedHints: Set<PersistentIdentifier>,
         in fresh: ModelContext
     ) async -> Bool {
@@ -1442,9 +1571,11 @@ final class DiveStore {
             if attempt > 0 { try? await Task.sleep(for: .milliseconds(250)) }
             let suspected = deletedHints.union(expectations.keys).union(pendingRemoteDeletedPIDs)
             updatePendingRemoteDeletions(checking: suspected, hints: deletedHints, in: fresh)
-            if pendingRemoteDeletedPIDs.isEmpty && mainContextMatches(expectations, includingPhotos: false) {
+            if pendingRemoteDeletedPIDs.isEmpty && mainContextMatches(expectations, includingPhotos: false)
+                && mainContextMatches(sights) {
                 sweepRemoteDeletions(hints: deletedHints, in: fresh)
-                if pendingRemoteDeletedPIDs.isEmpty && mainContextMatches(expectations, includingPhotos: true) {
+                if pendingRemoteDeletedPIDs.isEmpty && mainContextMatches(expectations, includingPhotos: true)
+                    && mainContextMatches(sights) {
                     return true
                 }
             } else if attempt == lastAttempt {
@@ -1504,6 +1635,33 @@ final class DiveStore {
         return true
     }
 
+    /// Precondition as above: every sighting's dive was checked (it is among the expected dives)
+    /// and no listed dive is pending deletion.
+    private func mainContextMatches(_ sights: [PersistentIdentifier: RemoteSightExpectation]) -> Bool {
+        for (pid, expected) in sights {
+            guard let id = diveIDByPID[expected.divePID], let dive = diveByID[id] else { continue }
+            guard let sight = (dive.seenFish ?? []).first(where: { $0.persistentModelID == pid }),
+                  !sight.isDeleted,
+                  sight.count == expected.count,
+                  sight.species?.persistentModelID == expected.speciesPID else { return false }
+        }
+        return true
+    }
+
+    /// The given sightings as committed in the store, for those on dives this device lists.
+    private func freshSightExpectations(for sightPIDs: Set<PersistentIdentifier>,
+                                        in fresh: ModelContext) async -> [PersistentIdentifier: RemoteSightExpectation] {
+        guard !sightPIDs.isEmpty else { return [:] }
+        let sights: [MarineSight] = await fetchModels(sightPIDs, in: fresh).found
+        var expectations: [PersistentIdentifier: RemoteSightExpectation] = [:]
+        for sight in sights {
+            guard let divePID = sight.dive?.persistentModelID, diveIDByPID[divePID] != nil else { continue }
+            expectations[sight.persistentModelID] = RemoteSightExpectation(
+                divePID: divePID, count: sight.count, speciesPID: sight.species?.persistentModelID)
+        }
+        return expectations
+    }
+
     private static func fishNames(of dive: Dive) -> [String] {
         (dive.seenFish ?? [])
             .map { $0.name.trimmingCharacters(in: .whitespaces) }
@@ -1539,7 +1697,7 @@ final class DiveStore {
         cachedDivesWithPhotos = withPhotos
         // Fish added, removed or renamed on another device (not photo-only changes): the
         // Marine Life statistics recompute.
-        if fishChanged { marineLifeVersion &+= 1 }
+        if fishChanged { sightingsVersion &+= 1 }
     }
 
     private func logRemoteHistory(_ message: String) {

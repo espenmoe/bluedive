@@ -125,15 +125,34 @@ struct MainTabView: View {
                     .tag(1)
 
                 // --- TAB 3 : EQUIPMENT ---
+                // Tab labels have their own short keys: five tabs share an iPhone's width
+                // (e.g. nl "Uitrusting" here, "Duikuitrusting" elsewhere).
                 NavigationStack {
                     GearListView()
                 }
                 .tabItem {
-                    Label("Equipment", systemImage: "wrench.and.screwdriver")
+                    Label {
+                        Text(verbatim: NSLocalizedString("Equipment (tab)", bundle: .forAppLanguage(), value: "Equipment", comment: "Tab bar label for Equipment; keep it short (five tabs share an iPhone's width)"))
+                    } icon: {
+                        Image(systemName: "wrench.and.screwdriver")
+                    }
                 }
                 .tag(2)
 
-                // --- TAB 4 : DOCUMENTS ---
+                // --- TAB 4 : MARINE LIFE --- (tag 4: the deep links keep tags 2 and 3)
+                MarineLifeView()
+                    // "View dives" there (and on its species pages) shows the Dives tab.
+                    .environment(\.showDiveList, ShowDiveListAction { selectedTab = 0 })
+                    .tabItem {
+                        Label {
+                            Text(verbatim: NSLocalizedString("Marine Life (tab)", bundle: .forAppLanguage(), value: "Marine Life", comment: "Tab bar label for Marine Life; keep it short (five tabs share an iPhone's width)"))
+                        } icon: {
+                            Image(systemName: "fish")
+                        }
+                    }
+                    .tag(4)
+
+                // --- TAB 5 : DOCUMENTS ---
                 DocumentsView()
                     .tabItem {
                         Label("Documents", systemImage: "person.text.rectangle")
@@ -141,9 +160,12 @@ struct MainTabView: View {
                     .tag(3)
             }
             .accentColor(.cyan)
+            // The only @Query Dive owner: keeps DiveStore's caches current whatever tab is
+            // shown (see DiveDataFeeder).
+            .background(DiveDataFeeder())
             // Keeps store.cachedUniqueDivers fed from gear/certifications/insurance whatever
             // tab is selected. A background view (not @Query on MainTabView itself) so a gear
-            // or document change doesn't re-evaluate MainTabView's body and all four tabs.
+            // or document change doesn't re-evaluate MainTabView's body and all the tabs.
             .background(DiverSourcesFeeder())
             // Applies other devices' edits to existing dives (iCloud) to DiveStore's caches,
             // whatever tab is selected. See RemoteChangeFeeder.

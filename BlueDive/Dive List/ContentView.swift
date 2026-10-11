@@ -23,8 +23,9 @@ let widgetAppGroupSuite = "group.app.bluedive.universal"
 
 struct ContentView: View {
     @Environment(\.modelContext) var modelContext
-    @Query(sort: \Dive.timestamp, order: .reverse) var dives: [Dive]
-    @Query(sort: \MarineSight.name) private var allMarineSights: [MarineSight]
+    /// Every dive, newest first (DiveStore's latest delivery from DiveDataFeeder, the only
+    /// @Query Dive owner). For actions; the view body reads `store.dives`.
+    var dives: [Dive] { store.currentDives }
     @State private var prefs = UserPreferences.shared
     @Environment(DiveStore.self) private var store
 
@@ -82,7 +83,6 @@ struct ContentView: View {
 
     @State private var showDiveTrips = false
     @State private var showCalendarHeatmap = false
-    @State private var showMarineLife = false
     @State private var showPhotoBatchImport = false
     @State private var showDashboard = false
     @State private var showMinimumGasPlanning = false
@@ -229,8 +229,8 @@ struct ContentView: View {
         isGrouped: Bool,
         onDelete: @escaping (IndexSet) -> Void
     ) -> some View {
-        // Read once, not per row: `dives` is the @Query.
-        let diveCount = dives.count
+        // Read once, not per row.
+        let diveCount = store.dives.count
         #if os(macOS)
         if prefs.showDiveListProfilePreview {
             diveRowsForEach(summaries, onDelete: onDelete) { summary in
@@ -327,7 +327,7 @@ struct ContentView: View {
     @ViewBuilder
     private func diveDetailDestination(_ target: DiveNavTarget) -> some View {
         if let dive = store.diveByID[target.summaryID] {
-            let rowNumber = dives.count - (store.diveIndexLookup[target.summaryID] ?? 0)
+            let rowNumber = store.dives.count - (store.diveIndexLookup[target.summaryID] ?? 0)
             let sortedDives: [Dive] = target.isGrouped
                 ? (store.cachedGroupedDives.first {
                        $0.key == dive.diverName.trimmingCharacters(in: .whitespaces)
@@ -347,7 +347,7 @@ struct ContentView: View {
 
                 VStack(spacing: 0) {
                     #if os(macOS)
-                    if !dives.isEmpty && prefs.showDiveListProfilePreview {
+                    if !store.dives.isEmpty && prefs.showDiveListProfilePreview {
                         DiveProfilePreviewPanel(selection: listSelection)
                     }
                     #endif
@@ -423,10 +423,6 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showCalendarHeatmap) {
                 DiveCalendarHeatmapView()
-                    .standardSheetPresentation()
-            }
-            .sheet(isPresented: $showMarineLife) {
-                MarineLifeView()
                     .standardSheetPresentation()
             }
             .sheet(isPresented: $showPhotoBatchImport) {
@@ -668,14 +664,7 @@ struct ContentView: View {
                 .standardSheetPresentation()
         }
         .onAppear {
-            if !store.hasCacheBuilt {
-                // First mount: build caches immediately (cold launch or first appearance).
-                store.rebuildDerivedDiveState(dives: dives, allMarineSights: allMarineSights, selectedDiver: selectedDiver)
-            } else {
-                // NavigationStack pop or scene re-activation: use the membership-guarded
-                // debounced path so no-op pops (cancel, no changes) skip the full rebuild.
-                store.scheduleRebuild(dives: dives, allMarineSights: allMarineSights, selectedDiver: selectedDiver)
-            }
+            // DiveStore's caches are built and kept current by DiveDataFeeder (MainTabView).
             // Cold-launch: onOpenURL may fire before this view mounts, so check
             // for a pending file URL that was stashed in the coordinator at launch.
             if let url = importCoordinator.pendingURL {
@@ -683,15 +672,10 @@ struct ContentView: View {
                 handleExternalFileURL(url)
             }
         }
-        .task {
-            store.updateWidgetDiveData(dives: dives)
-        }
-        .onChange(of: dives) { _, _ in store.scheduleRebuild(dives: dives, allMarineSights: allMarineSights, selectedDiver: selectedDiver) }
-        // Gear/certification/insurance diver names reach store.cachedUniqueDivers through
-        // DiverSourcesFeeder (attached in MainTabView, mounted whatever tab is shown), not here.
-        // Widget data is rewritten by DiveStore itself when its fingerprint changes (see
-        // scheduleAggregation), so it stays current while another tab is shown.
-        .onChange(of: prefs.depthUnit) { _, _ in store.updateWidgetDiveData(dives: dives); store.rebuildFilteredDives(dives: dives, selectedDiver: selectedDiver) }
+        // Dive membership (DiveDataFeeder) and gear/certification/insurance diver names
+        // (DiverSourcesFeeder) reach DiveStore through feeders attached in MainTabView, mounted
+        // whatever tab is shown, not here. Widget data is rewritten by DiveStore itself when its
+        // fingerprint changes (see scheduleAggregation).
         .diverFilterReset(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
         .onChange(of: store.cachedUniqueDivers) { _, newDivers in
             collapsedDiverSections.formIntersection(newDivers)
@@ -756,10 +740,12 @@ struct ContentView: View {
     
     @ViewBuilder
     private var contentSection: some View {
-        if !dives.isEmpty {
+        if !store.dives.isEmpty {
             diveList
                 .transition(.opacity)
-        } else if !isImporting {
+        } else if !isImporting && store.hasCacheBuilt {
+            // Only once DiveDataFeeder has built the caches: before, an empty list does not
+            // mean an empty logbook (no "Ready?" flash at launch).
             emptyStateView
                 .transition(.opacity)
         }
@@ -1097,7 +1083,7 @@ struct ContentView: View {
             Button(action: { showFileImporter = true }) {
                 Label("Import", systemImage: "doc.badge.plus")
             }
-            if !dives.isEmpty {
+            if !store.dives.isEmpty {
                 Divider()
                 Button(action: { showPhotoBatchImport = true }) {
                     Label("Import Photos", systemImage: "photo.badge.plus")
@@ -1143,10 +1129,7 @@ struct ContentView: View {
             Button(action: { showCalendarHeatmap = true }) {
                 Label("Calendar", systemImage: "calendar")
             }
-            Button(action: { showMarineLife = true }) {
-                Label("Marine Life", systemImage: "fish.fill")
-            }
-            if !dives.isEmpty {
+            if !store.dives.isEmpty {
                 Divider()
                 Button(action: exportAllDivesToXML) {
                     Label("Export All Dives to XML", systemImage: "chevron.left.forwardslash.chevron.right")
@@ -1155,7 +1138,7 @@ struct ContentView: View {
                     Label("Export All Dives to UDDF", systemImage: "water.waves")
                 }
             }
-            if dives.count >= 2 {
+            if store.dives.count >= 2 {
                 Button(action: { showMergeDivesSheet = true }) {
                     Label("Merge Dives", systemImage: "arrow.triangle.merge")
                 }

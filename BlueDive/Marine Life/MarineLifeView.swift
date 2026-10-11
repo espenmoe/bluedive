@@ -1,9 +1,11 @@
 import SwiftUI
 import SwiftData
 
+/// The Marine Life tab: the species seen on the dives and the species catalogue.
 struct MarineLifeView: View {
     @Environment(DiveStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
+    /// Shows the Dives tab, after "View dives" set the list's marine life filter.
+    @Environment(\.showDiveList) private var showDiveList
     @Environment(\.locale) private var locale
     @Environment(\.modelContext) private var modelContext
     @AppStorage(DiverFilter.storageKey) private var selectedDiver: String = ""
@@ -11,6 +13,9 @@ struct MarineLifeView: View {
 
     @State private var appeared = false
     @State private var statsReady = false
+    /// The tab is shown. A tab stays loaded after its first visit: the statistics are
+    /// recomputed only while it is shown (and when it is shown again, if anything changed).
+    @State private var isShown = false
 
     // Cached aggregates
     @State private var cachedSpecies: [SpeciesAggregate] = []
@@ -31,14 +36,14 @@ struct MarineLifeView: View {
     @State private var speciesProposals: [SpeciesPhotoProposal] = []
     @State private var showNoSpeciesInPhotos = false
 
-    /// Bumped after a catalogue action here; with `store.marineLifeVersion` (sightings saved,
+    /// Bumped after a catalogue action here; with `store.sightingsVersion` (sightings saved,
     /// full rebuilds) it makes the statistics recompute only when something changed.
     @State private var contentVersion = 0
-    /// The statistics' inputs: marineLifeVersion (any sighting saved — a quantity or
+    /// The statistics' inputs: sightingsVersion (any sighting saved — a quantity or
     /// species-link edit leaves the dive summaries unchanged — or a full rebuild),
     /// contentVersion (catalogue actions here), the catalogue, the diver, the language.
     private var statsKey: String {
-        "\(store.marineLifeVersion):\(contentVersion):\(catalogueHash):\(selectedDiver):\(UserPreferences.shared.languageMode.rawValue):\(UserPreferences.shared.taxonomyNameLanguage)"
+        "\(store.sightingsVersion):\(contentVersion):\(catalogueHash):\(selectedDiver):\(UserPreferences.shared.languageMode.rawValue):\(UserPreferences.shared.taxonomyNameLanguage)"
     }
     /// The inputs the shown statistics were computed for.
     @State private var computedStatsKey = ""
@@ -74,7 +79,13 @@ struct MarineLifeView: View {
         let isLinked: Bool
     }
 
-    private var filteredDives: [Dive] { DiverFilter.apply(selectedDiver, to: store.dives) }
+    /// The selected diver has no dive. From the dive summaries, not the dives: `store.dives`
+    /// can briefly hold a dive another device deleted (until the next debounced
+    /// rebuild), and reading a deleted dive crashes.
+    private var selectedDiverHasNoDive: Bool {
+        !selectedDiver.isEmpty && !store.cachedSummaries.isEmpty
+            && !store.cachedSummaries.contains { $0.diverName == selectedDiver }
+    }
 
     /// Changes when a catalogue species is added, removed or renamed, gets other names (its
     /// save links the sightings that use them), or gets iNaturalist
@@ -181,21 +192,9 @@ struct MarineLifeView: View {
     /// Categories used in the catalogue, for the filter menu.
     private var usedCategories: [String] { cachedUsedCategories }
 
-    /// One sighting, copied out of SwiftData before any suspension: a sighting or dive deleted
-    /// by an iCloud merge during a yield is never read afterwards.
-    private struct SightingValue {
-        let diveID: UUID
-        let divePID: PersistentIdentifier
-        let timestamp: Date
-        let name: String
-        let quantity: SightingQuantity
-        /// The catalogue species: linked, or known by the sighting's name (a sighting that
-        /// arrived unlinked — an XML import, an older app version — under a species' name is
-        /// counted with that species, not listed apart as "not in the catalogue").
-        let speciesPID: PersistentIdentifier?
-    }
 
-    private func computeStats(_ dives: [Dive]) async {
+    /// - Returns: false when the pass was cancelled or superseded (nothing was published).
+    private func computeStats() async -> Bool {
         typealias Accumulator = (name: String, scientific: String?, category: String?, speciesID: PersistentIdentifier?,
                                  entryCount: Int, dives: Set<UUID>, last: Date?, casings: [String: Int],
                                  qtyCounts: [SightingQuantity: Int], otherNames: Set<String>)
@@ -205,25 +204,14 @@ struct MarineLifeView: View {
         cachedNumberMap = Dictionary(store.dives.enumerated().map { ($0.element.persistentModelID, total - $0.offset) },
                                      uniquingKeysWith: { first, _ in first })
 
-        // Every sighting in one query, with its dive and species fetched along, read into
-        // values in one pass (no suspension while SwiftData objects are read).
-        var descriptor = FetchDescriptor<MarineSight>()
-        descriptor.relationshipKeyPathsForPrefetching = [\.dive, \.species]
-        let sights = (try? modelContext.fetch(descriptor)) ?? []
-        let allowed: Set<PersistentIdentifier>? = selectedDiver.isEmpty ? nil : Set(dives.map(\.persistentModelID))
-        let nameIndex = SpeciesNameIndex(catalogue: catalogue)
-        var values: [SightingValue] = []
-        values.reserveCapacity(sights.count)
-        for entry in sights {
-            guard !entry.isDeleted, let dive = entry.dive, !dive.isDeleted else { continue }
-            if let allowed, !allowed.contains(dive.persistentModelID) { continue }
-            let trimmedName = entry.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedName.isEmpty else { continue }
-            let species = entry.species.flatMap { $0.isDeleted ? nil : $0 } ?? nameIndex.species(named: trimmedName)
-            values.append(SightingValue(diveID: dive.id, divePID: dive.persistentModelID, timestamp: dive.timestamp,
-                                        name: trimmedName, quantity: SightingQuantity.from(count: entry.count),
-                                        speciesPID: species?.persistentModelID))
-        }
+        // Every sighting, as plain values read from the store off the main thread, the diver
+        // filter applied on the dives as stored (DiveStore.sightingValues / SightingReader).
+        // Nil: a newer pass superseded this one.
+        let speciesByName = SpeciesNameIndex(catalogue: catalogue).speciesIDsByKey
+        guard let values = await store.sightingValues(diverName: selectedDiver.isEmpty ? nil : selectedDiver,
+                                                      speciesByName: speciesByName, namesKey: catalogueHash,
+                                                      container: modelContext.container),
+              !Task.isCancelled else { return false }
         // Display data of each catalogue species, read once (live query results).
         var speciesInfo: [PersistentIdentifier: (id: UUID, name: String, scientific: String?, category: String?,
                                                  otherNames: Set<String>)] = [:]
@@ -241,14 +229,17 @@ struct MarineLifeView: View {
         for (idx, value) in values.enumerated() {
             if idx % yieldInterval == yieldInterval - 1 {
                 await Task.yield()
-                if Task.isCancelled { return }
+                if Task.isCancelled { return false }
             }
-            if let pid = value.speciesPID, let info = speciesInfo[pid] {
+            // A linked species the catalogue does not show yet (added on another device, not
+            // merged) is looked up by name, as an unlinked sighting is.
+            let linked = value.speciesPID.flatMap { speciesInfo[$0] != nil ? $0 : nil }
+            if let pid = linked ?? speciesByName[SpeciesCatalog.key(value.name)], let info = speciesInfo[pid] {
                 let key = "s:\(info.id.uuidString)"
                 var existing = byKey[key] ?? (info.name, info.scientific, info.category, pid, 0, [], nil, [:], [:], info.otherNames)
                 existing.otherNames.insert(value.name)
                 existing.entryCount += 1
-                existing.qtyCounts[value.quantity, default: 0] += 1
+                existing.qtyCounts[SightingQuantity.from(count: value.count), default: 0] += 1
                 existing.dives.insert(value.diveID)
                 existing.last = max(existing.last ?? value.timestamp, value.timestamp)
                 byKey[key] = existing
@@ -256,7 +247,7 @@ struct MarineLifeView: View {
                 let key = "n:\(value.name.lowercased())"
                 var existing = byKey[key] ?? (value.name, nil, nil, nil, 0, [], nil, [:], [:], [])
                 existing.entryCount += 1
-                existing.qtyCounts[value.quantity, default: 0] += 1
+                existing.qtyCounts[SightingQuantity.from(count: value.count), default: 0] += 1
                 existing.dives.insert(value.diveID)
                 existing.last = max(existing.last ?? value.timestamp, value.timestamp)
                 let newCount = existing.casings[value.name, default: 0] + 1
@@ -299,7 +290,7 @@ struct MarineLifeView: View {
             return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
 
-        if Task.isCancelled { return }
+        if Task.isCancelled { return false }
 
         cachedSpecies = aggregates
         // Species actually seen: catalogue species never recorded on a dive are listed, not counted.
@@ -307,6 +298,7 @@ struct MarineLifeView: View {
         cachedTotalSightings = values.count
         cachedDivesWithLife = divesWithSightings.count
         statsReady = true
+        return true
     }
 
     // MARK: - Body
@@ -314,7 +306,7 @@ struct MarineLifeView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if !store.dives.isEmpty && !selectedDiver.isEmpty && filteredDives.isEmpty {
+                if selectedDiverHasNoDive {
                     NoEntriesForDiverView(
                         title: DiverFilter.noDivesTitle(for: selectedDiver),
                         description: DiverFilter.noDivesDescription(for: selectedDiver)
@@ -338,37 +330,21 @@ struct MarineLifeView: View {
                 }
             }
             .navigationTitle("Marine Life")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    closeToolbarButton { dismiss() }
-                }
-                DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
-                ToolbarItem(placement: .sheetPrimaryAction) {
-                    Button {
-                        showAddSpecies = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(Text("Add Species"))
-                }
-                ToolbarItem(placement: .sheetPrimaryAction) {
-                    catalogueMenu
-                }
-            }
+            .toolbar { toolbarContent }
             .background(AppBackground().ignoresSafeArea())
             .onChange(of: taxonFilter) { _, _ in rebuildTaxonSelection() }
             // Species deleted or merged (here or on another device): dropped from the caches
             // at once, before the statistics are recomputed.
             .onChange(of: catalogue.count) { _, _ in pruneDeletedSpecies() }
-            .task(id: statsKey) {
-                // Back from a pushed page re-runs the task: nothing to do when nothing changed.
-                guard statsKey != computedStatsKey else { return }
+            .task(id: isShown ? statsKey : "") {
+                // Back from a pushed page, or back to the tab, re-runs the task: nothing to do
+                // when nothing changed.
+                guard isShown, statsKey != computedStatsKey else { return }
                 let firstPass = !statsReady
                 rebuildCatalogueCaches()
                 // The list stays on screen (and keeps its scroll position) while it refreshes;
                 // only the first pass shows a spinner and fades the list in.
-                await computeStats(filteredDives)
-                if Task.isCancelled { return }
+                guard await computeStats(), !Task.isCancelled else { return }
                 computedStatsKey = statsKey
                 if firstPass {
                     withAnimation(.easeOut(duration: 0.6)) {
@@ -429,6 +405,43 @@ struct MarineLifeView: View {
                 Text(verbatim: String(format: NSLocalizedString("Species created: %@. Sightings linked: %@.", bundle: .forAppLanguage(), value: "Species created: %@. Sightings linked: %@.", comment: "Build catalogue result (locale-formatted numbers)"), Double(buildResult?.created ?? 0).localizedString(decimals: 0), Double(buildResult?.linked ?? 0).localizedString(decimals: 0)))
             }
         }
+        // The tab's whole stack (pushed pages included): shown until another tab is selected.
+        // Coming back recomputes only if something changed meanwhile (statsKey; DiveStore bumps
+        // sightingsVersion for sightings added, removed or edited, here or on another device).
+        .onAppear { isShown = true }
+        .onDisappear { isShown = false }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
+
+        #if os(macOS)
+        // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
+        // navigation bar does; separate items (especially menus) get separate capsules.
+        ToolbarItemGroup(placement: .primaryAction) {
+            addSpeciesButton
+            catalogueMenu
+        }
+        #else
+        ToolbarItem(placement: .primaryAction) {
+            addSpeciesButton
+        }
+        ToolbarItem(placement: .primaryAction) {
+            catalogueMenu
+        }
+        #endif
+    }
+
+    // Toolbar controls, shared by the iOS and macOS toolbar layouts above.
+
+    private var addSpeciesButton: some View {
+        Button {
+            showAddSpecies = true
+        } label: {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel(Text("Add Species"))
     }
 
     private var catalogueMenu: some View {
@@ -676,31 +689,30 @@ struct MarineLifeView: View {
 
     /// Filters the dive list to dives where a species of the selected taxon was recorded (by
     /// the names its sightings were recorded with, including unlinked ones under its names)
-    /// and closes the sheet.
+    /// and shows the dive list.
     private func viewDivesInTaxon() {
         let names = SpeciesCatalog.diveFilterNames(for: speciesInTaxon, in: modelContext)
         guard !names.isEmpty else { return }
         store.filterMarineLifeMode = .any
         store.filterMarineLife = names
-        dismiss()
+        showDiveList?()
     }
 
     @ViewBuilder
     private func destination(for aggregate: SpeciesAggregate) -> some View {
         if let id = aggregate.speciesID {
             if let species = liveSpecies(id) {
-                SpeciesDetailView(species: species, numberMap: cachedNumberMap, closeSheet: { dismiss() })
-                    .closeSheetButtonOnMac { dismiss() }
+                SpeciesDetailView(species: species, numberMap: cachedNumberMap)
             }
         } else {
             UnlinkedSightingsView(
                 name: aggregate.name,
-                dives: filteredDives.filter { aggregate.diveIDs.contains($0.id) },
+                // By identifier (no dive read), then only dives still in the store.
+                dives: aggregate.diveIDs.compactMap { store.diveByID[$0] }
+                    .filter { !$0.isDeleted && $0.modelContext != nil },
                 numberMap: cachedNumberMap,
-                closeSheet: { dismiss() },
                 onLinked: { contentVersion += 1 }
             )
-            .closeSheetButtonOnMac { dismiss() }
         }
     }
 
@@ -807,7 +819,8 @@ struct UnlinkedSightingsView: View {
     let name: String
     let dives: [Dive]
     let numberMap: [PersistentIdentifier: Int]
-    let closeSheet: () -> Void
+    /// The sheet the page is pushed in, if any (its dives' pages get its close button).
+    @Environment(\.sheetDismiss) private var sheetDismiss
     /// Called after the sightings were linked to a species (the list must refresh).
     var onLinked: () -> Void = {}
     @Environment(\.modelContext) private var modelContext
@@ -816,7 +829,11 @@ struct UnlinkedSightingsView: View {
     @State private var prefs = UserPreferences.shared
     @State private var showLinkSheet = false
 
-    private var sortedDives: [Dive] { dives.sorted { $0.timestamp > $1.timestamp } }
+    /// Re-checked on every redraw: the page stays open in the Marine Life tab, and a dive
+    /// deleted on another device must never be read (it would crash).
+    private var sortedDives: [Dive] {
+        dives.filter { !$0.isDeleted && $0.modelContext != nil }.sorted { $0.timestamp > $1.timestamp }
+    }
 
     var body: some View {
         ScrollView {
@@ -848,7 +865,7 @@ struct UnlinkedSightingsView: View {
                 ForEach(sortedDives) { dive in
                     NavigationLink {
                         DiveDetailView(dive: dive, sortedDives: sortedDives, diveNumber: numberMap[dive.persistentModelID] ?? 0)
-                            .closeSheetButtonOnMac { closeSheet() }
+                            .closeSheetButtonOnMac(sheetDismiss)
                     } label: {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {

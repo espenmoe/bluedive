@@ -158,9 +158,16 @@ struct DiveTripsView: View {
     @State private var cachedTrips: [DiveTrip] = []
     @State private var tripsReady = false
     @State private var tripsVersion: Int = 0
+    /// The inputs the shown trips were built for: back from a trip pushed inside this sheet
+    /// (macOS) re-runs the task, which then has nothing to rebuild.
+    @State private var builtTripsKey = ""
     @AppStorage(DiverFilter.storageKey) private var selectedDiver: String = ""
 
     private var filteredDives: [Dive] { DiverFilter.apply(selectedDiver, to: store.dives) }
+
+    private var tripsKey: String {
+        "\(store.dives.count):\(selectedDiver):\(tripsVersion):\(store.dives.reduce(into: 0) { $0 += Int($1.timestamp.timeIntervalSinceReferenceDate) })"
+    }
 
     var body: some View {
         NavigationStack {
@@ -226,11 +233,23 @@ struct DiveTripsView: View {
                 }
                 DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
             }
+            #if os(macOS)
+            // Pushed inside this sheet (with Back), not a sheet on the sheet: macOS has no
+            // swipe-down, and a second sheet would have no way back to the list.
+            .navigationDestination(item: $selectedTrip) { trip in
+                TripDetailSheet(trip: trip, prefs: prefs)
+                    .closeSheetButtonOnMac { dismiss() }
+            }
+            #else
             .sheet(item: $selectedTrip) { trip in
                 TripDetailSheet(trip: trip, prefs: prefs)
                     .standardSheetPresentation()
             }
-            .task(id: "\(store.dives.count):\(selectedDiver):\(tripsVersion):\(store.dives.reduce(into: 0) { $0 += Int($1.timestamp.timeIntervalSinceReferenceDate) })") {
+            #endif
+            .task(id: tripsKey) {
+                let key = tripsKey
+                guard key != builtTripsKey else { return }
+                builtTripsKey = key
                 tripsAppeared = false
                 cachedTrips = TripBuilder.buildTrips(from: Array(filteredDives))
                 tripsReady = true
@@ -505,12 +524,28 @@ struct TripStatMini: View {
     }
 }
 
+#if os(macOS)
+/// Pushed by value inside the Trips sheet (`navigationDestination(item:)`): a trip is
+/// identified by its id.
+extension DiveTrip: Hashable {
+    static func == (lhs: DiveTrip, rhs: DiveTrip) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+#endif
+
 // MARK: - Trip Detail Sheet
 
+/// One trip: its statistics, highlights and dives. On iOS a sheet of its own; on macOS a page
+/// pushed inside the Trips sheet.
 struct TripDetailSheet: View {
     let trip: DiveTrip
     let prefs: UserPreferences
     @Environment(\.dismiss) private var dismiss
+    #if os(macOS)
+    /// On macOS this page is pushed inside the Trips sheet (its destination has
+    /// `closeSheetButtonOnMac`): that sheet's close action. Nil: presented as its own sheet.
+    @Environment(\.sheetDismiss) private var sheetDismiss
+    #endif
     @Environment(\.locale) private var locale
     @Environment(DiveStore.self) private var store
     @AppStorage(DiverFilter.storageKey) private var selectedDiver: String = ""
@@ -526,48 +561,66 @@ struct TripDetailSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    #if os(macOS)
-                    // The Mac sheet is wide: hero stats beside Highlights (hero alone keeps
-                    // the full width); fixedSize gives both the height of the taller one.
-                    HStack(alignment: .top, spacing: 20) {
-                        heroSection
-                            .frame(maxWidth: .infinity)
-                        if hasHighlights {
-                            highlightsSection
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    #else
-                    // Hero stats
-                    heroSection
+        #if os(macOS)
+        if let sheetDismiss {
+            page(closeSheet: { sheetDismiss() })
+        } else {
+            sheetPage
+        }
+        #else
+        sheetPage
+        #endif
+    }
 
-                    // Highlights
+    /// The trip as its own sheet: a navigation stack (the dives are pushed in it) and Close.
+    private var sheetPage: some View {
+        NavigationStack {
+            page(closeSheet: { dismiss() })
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        closeToolbarButton { dismiss() }
+                    }
+                }
+        }
+    }
+
+    /// The trip's content; `closeSheet` closes the sheet it is shown in (from a dive's page
+    /// on macOS, see `closeSheetButtonOnMac`).
+    private func page(closeSheet: @escaping () -> Void) -> some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                #if os(macOS)
+                // The Mac sheet is wide: hero stats beside Highlights (hero alone keeps
+                // the full width); fixedSize gives both the height of the taller one.
+                HStack(alignment: .top, spacing: 20) {
+                    heroSection
+                        .frame(maxWidth: .infinity)
                     if hasHighlights {
                         highlightsSection
+                            .frame(maxWidth: .infinity)
                     }
-                    #endif
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                #else
+                // Hero stats
+                heroSection
 
-                    // All dives list
-                    divesListSection
+                // Highlights
+                if hasHighlights {
+                    highlightsSection
                 }
-                .padding()
+                #endif
+
+                // All dives list
+                divesListSection(closeSheet: closeSheet)
             }
-            .navigationTitle(trip.name)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .background(AppBackground().ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    closeToolbarButton { dismiss() }
-                }
-            }
+            .padding()
         }
-
+        .navigationTitle(trip.name)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .background(AppBackground().ignoresSafeArea())
     }
 
     private var hasHighlights: Bool {
@@ -620,7 +673,7 @@ struct TripDetailSheet: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.platformSecondaryBackground))
     }
 
-    private var divesListSection: some View {
+    private func divesListSection(closeSheet: @escaping () -> Void) -> some View {
         let sortedDives = trip.dives.sorted { $0.timestamp < $1.timestamp }
         return VStack(alignment: .leading, spacing: 8) {
             Text("🤿 All Dives (\(trip.totalDives))")
@@ -628,7 +681,7 @@ struct TripDetailSheet: View {
                 .padding(.bottom, 4)
 
             ForEach(sortedDives) { dive in
-                NavigationLink(destination: DiveDetailView(dive: dive, sortedDives: sortedDives, diveNumber: numberMap[dive.persistentModelID] ?? 0).closeSheetButtonOnMac { dismiss() }) {
+                NavigationLink(destination: DiveDetailView(dive: dive, sortedDives: sortedDives, diveNumber: numberMap[dive.persistentModelID] ?? 0).closeSheetButtonOnMac { closeSheet() }) {
                     DiveRowView(
                         summary: DiveSummary(from: dive, hasFish: !(dive.seenFish?.isEmpty ?? true), hasPhotos: store.cachedDivesWithPhotos.contains(dive.id)),
                         diveNumber: numberMap[dive.persistentModelID] ?? 0

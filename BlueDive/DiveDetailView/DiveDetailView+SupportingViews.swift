@@ -1737,9 +1737,11 @@ struct PhotoPreviewSheet: View {
                     .standardSheetPresentation()
             }
             .navigationDestination(item: $shownSpecies) { species in
-                SpeciesDetailView(species: species, numberMap: diveNumberMap, closeSheet: { dismiss() },
-                                  offersDiveFilter: false)
+                SpeciesDetailView(species: species, numberMap: diveNumberMap)
                     .closeSheetButtonOnMac { dismiss() }
+                    // No "View Dives with This Critter" here (inherited from the Marine Life tab;
+                    // on macOS the sheet root already clears it, on iOS this does).
+                    .environment(\.showDiveList, nil)
             }
             .toolbar {
                 if photoIDs.count > 1 {

@@ -152,6 +152,11 @@ struct SpeciesNameIndex {
         byKey[SpeciesCatalog.key(name)]
     }
 
+    /// The same lookup as identifiers by normalised name, for use off the main actor.
+    var speciesIDsByKey: [String: PersistentIdentifier] {
+        byKey.mapValues(\.persistentModelID)
+    }
+
     /// A species other than `excluding` known by `name` (common, scientific or other name).
     func otherSpecies(named name: String, excluding: Species?) -> Species? {
         (allByKey[SpeciesCatalog.key(name)] ?? []).first { $0.persistentModelID != excluding?.persistentModelID }
@@ -185,7 +190,8 @@ struct SpeciesNameIndex {
 @MainActor
 enum SpeciesCatalog {
 
-    static func key(_ name: String) -> String {
+    /// Nonisolated: also used off the main actor (Marine Life's sighting reader).
+    nonisolated static func key(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 

@@ -580,6 +580,8 @@ extension ContentView {
 
     @MainActor
     func findDuplicateMatches(in parsed: [BlueDiveGlobalData]) -> [DuplicateImportMatch] {
+        // Every dive, read once (`dives` filters the store's latest delivery on each access).
+        let dives = self.dives
         // Build lookup structures once so per-dive matching is O(1) instead of O(N).
         // divesByIdentifierLowercased: lowercased for case-insensitive O(1) lookup. One-to-many because
         // multiple existing dives can share the same identifier (e.g. after a prior double-import or
@@ -1384,8 +1386,8 @@ extension ContentView {
         try? modelContext.save()
 
         // NOTE (DiveStore): we intentionally do NOT call store.commit(_:affects:) here.
-        // mergeDives runs inside ContentView, the sole @Query Dive owner. Deleting `later`
-        // and saving triggers a @Query re-delivery, which ContentView forwards to
+        // Deleting `later` and saving triggers a @Query re-delivery, which DiveDataFeeder (the
+        // sole @Query Dive owner) forwards to
         // store.scheduleRebuild(...) — a full rebuild that drops the deleted dive and
         // recomputes every summary (including `earlier`'s new depth/duration). Calling
         // store.commit(earlier, affects: .list) here would be unsafe: store.dives still

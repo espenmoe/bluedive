@@ -5,21 +5,23 @@ import MapKit
 // MARK: - Species Detail
 
 /// One species of the catalogue: its profile, statistics over the dives it was seen on,
-/// encounter history, photos, distribution map and notes. Pushed inside the Marine Life
-/// sheet (or the photo viewer); `closeSheet` dismisses that sheet (see `closeSheetButtonOnMac`).
+/// encounter history, photos, distribution map and notes. Pushed in the Marine Life tab, or
+/// inside the photo viewer's sheet.
 struct SpeciesDetailView: View {
     @Bindable var species: Species
     let numberMap: [PersistentIdentifier: Int]
-    let closeSheet: () -> Void
-    /// Offers "View Dives with This Critter", which filters the dive list and closes the
-    /// sheet. Off in the photo viewer: closing it would only return to the dive shown, with
-    /// the list filtered behind it.
-    var offersDiveFilter = true
 
     @Environment(DiveStore.self) private var store
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
+    @Environment(\.isPushedInSheet) private var isPushedInSheet
+    /// The sheet the page is pushed in, if any (its dives' pages get its close button).
+    @Environment(\.sheetDismiss) private var sheetDismiss
+    /// Shows the dive list, for "View Dives with This Critter" (filters the list, then shows
+    /// it). Nil hides the button: set on the Marine Life tab only — in the photo viewer it
+    /// would only return to the dive shown, with the list filtered behind it.
+    @Environment(\.showDiveList) private var showDiveList
     @AppStorage(DiverFilter.storageKey) private var selectedDiver: String = ""
     @State private var prefs = UserPreferences.shared
 
@@ -45,7 +47,8 @@ struct SpeciesDetailView: View {
     private var dives: [Dive] {
         var seen = Set<PersistentIdentifier>()
         let all = ((species.sightings ?? []).compactMap(\.dive) + unlinkedSightingDives)
-            .filter { !$0.isDeleted && seen.insert($0.persistentModelID).inserted }
+            // A dive deleted and merged reports no context (isDeleted alone misses it once saved).
+            .filter { !$0.isDeleted && $0.modelContext != nil && seen.insert($0.persistentModelID).inserted }
         return DiverFilter.apply(selectedDiver, to: all).sorted { $0.timestamp > $1.timestamp }
     }
 
@@ -68,7 +71,7 @@ struct SpeciesDetailView: View {
             }
         }
         .background(AppBackground().ignoresSafeArea())
-        .task(id: isGone ? "" : "\(store.marineLifeVersion)|\(species.commonName)|\(species.altNames?.count ?? 0)") {
+        .task(id: isGone ? "" : "\(store.sightingsVersion)|\(species.commonName)|\(species.altNames?.count ?? 0)") {
             guard !self.isGone else { return }
             unlinkedSightingDives = SpeciesCatalog.unlinkedSightings(of: species, in: modelContext).compactMap(\.dive)
         }
@@ -132,41 +135,64 @@ struct SpeciesDetailView: View {
         }
     }
 
+    /// In a sheet, macOS would draw a `.primaryAction` item as the sheet's default button.
+    private var toolbarPlacement: ToolbarItemPlacement {
+        isPushedInSheet ? .sheetPrimaryAction : .primaryAction
+    }
+
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .sheetPrimaryAction) {
-            Button {
-                showEdit = true
-            } label: {
-                Image(systemName: "pencil")
-            }
-            .accessibilityLabel(Text("Edit Species"))
+        #if os(macOS)
+        // One group, so macOS shares a single glass capsule as the iOS navigation bar does.
+        ToolbarItemGroup(placement: toolbarPlacement) {
+            editButton
+            moreMenu
         }
-        ToolbarItem(placement: .sheetPrimaryAction) {
-            Menu {
-                if prefs.fetchTaxonomyOnline {
-                    Button {
-                        showLookup = true
-                    } label: {
-                        Label("Look Up on iNaturalist", systemImage: "leaf")
-                    }
-                }
+        #else
+        ToolbarItem(placement: toolbarPlacement) {
+            editButton
+        }
+        ToolbarItem(placement: toolbarPlacement) {
+            moreMenu
+        }
+        #endif
+    }
+
+    // Toolbar controls, shared by the iOS and macOS toolbar layouts above.
+
+    private var editButton: some View {
+        Button {
+            showEdit = true
+        } label: {
+            Image(systemName: "pencil")
+        }
+        .accessibilityLabel(Text("Edit Species"))
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            if prefs.fetchTaxonomyOnline {
                 Button {
-                    showMerge = true
+                    showLookup = true
                 } label: {
-                    Label("Merge Into Another Species…", systemImage: "arrow.triangle.merge")
+                    Label("Look Up on iNaturalist", systemImage: "leaf")
                 }
-                Button(role: .destructive) {
-                    showDeleteAlert = true
-                } label: {
-                    Label("Delete Species", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
             }
-            .toolbarMenuIndicatorHiddenOnMac()
-            .accessibilityLabel(Text("More"))
+            Button {
+                showMerge = true
+            } label: {
+                Label("Merge Into Another Species…", systemImage: "arrow.triangle.merge")
+            }
+            Button(role: .destructive) {
+                showDeleteAlert = true
+            } label: {
+                Label("Delete Species", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
         }
+        .toolbarMenuIndicatorHiddenOnMac()
+        .accessibilityLabel(Text("More"))
     }
 
     private func content(_ dives: [Dive]) -> some View {
@@ -275,7 +301,7 @@ struct SpeciesDetailView: View {
             }
             .padding(.horizontal)
 
-            if offersDiveFilter, !dives.isEmpty {
+            if showDiveList != nil, !dives.isEmpty {
                 Button {
                     viewDivesWithSpecies()
                 } label: {
@@ -308,7 +334,7 @@ struct SpeciesDetailView: View {
                         ForEach(dives) { dive in
                             NavigationLink {
                                 DiveDetailView(dive: dive, sortedDives: dives, diveNumber: numberMap[dive.persistentModelID] ?? 0)
-                                    .closeSheetButtonOnMac { closeSheet() }
+                                    .closeSheetButtonOnMac(sheetDismiss)
                             } label: {
                                 encounterRow(dive)
                             }
@@ -443,11 +469,11 @@ struct SpeciesDetailView: View {
     }
 
     /// Filters the dive list to the dives with this species (by the names its sightings were
-    /// recorded with, including the unlinked ones counted here) and closes the Marine Life sheet.
+    /// recorded with, including the unlinked ones counted here) and shows the dive list.
     private func viewDivesWithSpecies() {
         store.filterMarineLifeMode = .any
         store.filterMarineLife = SpeciesCatalog.diveFilterNames(for: [species], in: modelContext)
-        closeSheet()
+        showDiveList?()
     }
 
     // MARK: Photos

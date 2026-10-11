@@ -791,7 +791,7 @@ struct EditSiteDetailsView: View {
     @Bindable var dive: Dive
     @Environment(\.dismiss) private var dismiss
     @Environment(DiveStore.self) private var store
-    // store.dives is sorted by timestamp desc (same order ContentView's @Query delivers)
+    // store.dives is sorted by timestamp desc (same order DiveDataFeeder's @Query delivers)
     private var allDivesByDate: [Dive] { store.dives }
 
     @State private var selectedSite: Dive? = nil
