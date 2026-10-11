@@ -43,7 +43,8 @@ struct FishChipView: View {
             Text(fish.name)
                 .font(.subheadline)
                 .fontWeight(.bold)
-                .lineLimit(2)
+                // Two lines reserved, so every chip in a grid row has the same height.
+                .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.center)
 
             Text(SightingQuantity.from(count: fish.count).label)
@@ -51,10 +52,11 @@ struct FishChipView: View {
                 .fontWeight(.bold)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.cyan.opacity(0.2))
+                .background(Color.orange.opacity(0.2))
                 .clipShape(Capsule())
         }
-        .frame(maxWidth: 140)
+        // Fills its grid column.
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.1)))
@@ -1532,7 +1534,7 @@ struct IdentifiablePhotoData: Identifiable {
     let index: Int
 }
 
-/// One photo in a dive's photo strip: a `DivePhoto` record, or an image still stored in the
+/// One photo in a dive's photo grid: a `DivePhoto` record, or an image still stored in the
 /// legacy `Dive.photosData` array (until the user converts it).
 struct DivePhotoEntry: Identifiable {
     enum Source {
@@ -1585,7 +1587,6 @@ struct PhotoPreviewSheet: View {
     @State private var deleteTargetID: String?
     @State private var taggingPhoto: DivePhoto?
     @State private var shareThumbnail: PlatformImage?
-    @State private var isPageSeeded: Bool
     @State private var cachedExportName: String
     @State private var cachedShareItem: PhotoTransferable?
     @State private var sessionTempFileURLs: Set<URL> = []
@@ -1608,9 +1609,6 @@ struct PhotoPreviewSheet: View {
         self.initialIndex = initialIndex
         self.onDelete = onDelete
         self._currentIndex = State(initialValue: initialIndex)
-        // No seeding needed when starting at page 0; UIPageViewController
-        // naturally initialises at its own page 0.
-        self._isPageSeeded = State(initialValue: initialIndex == 0)
         // Seed the export name at construction time so the first body render
         // already has a valid filename — avoids an empty-name SharePreview.
         let exportPrefix = NSLocalizedString("BlueDive Photo", bundle: Bundle.forAppLanguage(), comment: "Prefix for exported photo filenames shown in share sheet and save dialog")
@@ -1683,25 +1681,30 @@ struct PhotoPreviewSheet: View {
                 if photoIDs.isEmpty {
                     AppBackground().ignoresSafeArea()
                 } else {
-                    #if os(iOS)
-                    TabView(selection: $currentIndex) {
-                        ForEach(photoIDs.indices, id: \.self) { index in
-                            PhotoPageView(photoID: pageID(index), load: { photoData(index) }, index: index, total: photoIDs.count)
-                                .tag(index)
+                    // A paging scroll view, on every platform: it opens directly on the tapped
+                    // photo (a paging TabView opened between two pages and had to be nudged
+                    // into place, which showed as a short slide). Swipe on a touch screen or
+                    // trackpad, or use the Previous / Next buttons.
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 0) {
+                            ForEach(photoIDs.indices, id: \.self) { index in
+                                PhotoPageView(photoID: pageID(index), load: { photoData(index) }, index: index, total: photoIDs.count,
+                                              isCurrent: index == currentIndex)
+                                    .containerRelativeFrame([.horizontal, .vertical])
+                                    .id(index)
+                            }
                         }
+                        .scrollTargetLayout()
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .opacity(isPageSeeded ? 1 : 0)
-                    .animation(.easeIn(duration: 0.15), value: isPageSeeded)
-                    #else
-                    // The paging TabView style is unavailable on macOS: show the current
-                    // photo only and navigate with the Previous / Next toolbar buttons.
-                    if !photoIDs.isEmpty {
-                        let index = min(currentIndex, photoIDs.count - 1)
-                        PhotoPageView(photoID: pageID(index), load: { photoData(index) }, index: index, total: photoIDs.count)
-                            .id(currentIndex)
-                    }
-                    #endif
+                    .scrollTargetBehavior(.paging)
+                    .scrollIndicators(.hidden)
+                    // Centre anchor: the current photo changes once the next page fills most
+                    // of the screen, not as soon as it peeks in during a swipe that may be
+                    // cancelled.
+                    .scrollPosition(id: Binding(
+                        get: { currentIndex },
+                        set: { if let index = $0 { currentIndex = index } }
+                    ), anchor: .center)
                 }
             }
             .background(AppBackground().ignoresSafeArea())
@@ -1747,7 +1750,8 @@ struct PhotoPreviewSheet: View {
                 if photoIDs.count > 1 {
                     ToolbarItem(placement: .bottomBar) {
                         Button {
-                            currentIndex -= 1
+                            // Animated here only: a swipe sets the index itself, mid-swipe.
+                            withAnimation { currentIndex -= 1 }
                         } label: {
                             Label("Previous Photo", systemImage: "chevron.left")
                         }
@@ -1761,7 +1765,7 @@ struct PhotoPreviewSheet: View {
                     }
                     ToolbarItem(placement: .bottomBar) {
                         Button {
-                            currentIndex += 1
+                            withAnimation { currentIndex += 1 }
                         } label: {
                             Label("Next Photo", systemImage: "chevron.right")
                         }
@@ -1845,12 +1849,6 @@ struct PhotoPreviewSheet: View {
                 Text("Remove this photo from the dive?")
             }
             .task(id: thumbnailTaskID) {
-                // The id-level sentinel (thumbnailTaskID returns 0 while !isPageSeeded)
-                // suppresses index-change re-fires during the seed dance, but .task(id:)
-                // always fires once on first appear regardless of id value. This guard
-                // makes that initial fire a no-op so the decode runs exactly once —
-                // after isPageSeeded becomes true and the id flips to the real photoTaskID.
-                guard isPageSeeded else { return }
                 // Snapshot the export filename once per photo change so the ShareLink
                 // item name is stable across body re-renders within the same photo.
                 let name = exportFileName
@@ -1911,33 +1909,6 @@ struct PhotoPreviewSheet: View {
                     currentIndex = min(currentIndex, newCount - 1)
                 }
             }
-            .task {
-                guard !isPageSeeded else { return }
-                // A single photo has no neighbour to visit; no offset mis-alignment occurs.
-                guard photoIDs.count > 1 else { isPageSeeded = true; return }
-                let target = currentIndex   // always > 0 here (isPageSeeded == false iff initialIndex > 0)
-                // Safety net: if the invariant above ever weakens, avoid setting index to -1.
-                guard target > 0 else { isPageSeeded = true; return }
-                #if os(iOS)
-                // UIPageViewController's scroll view is initialised at an incorrect offset
-                // when the selection is non-zero, placing it visually between two pages.
-                // Seeding with one instant step to a neighbour and back forces it to
-                // re-commit to the correct offset.
-                // defer ensures setAnimationsEnabled(true) is restored even when this task
-                // is cancelled mid-sleep. try? converts CancellationError to nil so execution
-                // continues normally; defer fires on the closure's normal return.
-                defer { UIView.setAnimationsEnabled(true) }
-                UIView.setAnimationsEnabled(false)
-                currentIndex = target - 1
-                // Task.sleep reliably waits past a full display-link cycle (~16 ms at 60 fps),
-                // unlike Task.yield() which only reschedules without guaranteeing a UIKit layout commit.
-                try? await Task.sleep(nanoseconds: 33_000_000)
-                // Re-clamp in case photos shrank while sleeping (e.g., concurrent iCloud sync).
-                currentIndex = photoIDs.isEmpty ? 0 : min(target, photoIDs.count - 1)
-                try? await Task.sleep(nanoseconds: 33_000_000)
-                #endif
-                isPageSeeded = true
-            }
             .onDisappear {
                 // Remove only the temp files this session predicted (one per photo navigated to).
                 // SentTransferredFile(allowAccessingOriginalFile: false) (the default) causes the
@@ -1960,13 +1931,6 @@ struct PhotoPreviewSheet: View {
     }()
 
     private var thumbnailTaskID: Int {
-        // Return a stable sentinel while the seed dance is in progress so that the
-        // two currentIndex writes (target-1 then target) don't each fire the thumbnail
-        // task and launch redundant Task.detached decodes for the neighbour photo.
-        // The decode runs exactly once when isPageSeeded becomes true — the .task(id:)
-        // mechanism fires twice (id=0 on first appear, real id after seeding), but the
-        // body guard at the top of the task neutralizes the id=0 fire as a no-op.
-        guard isPageSeeded else { return 0 }
         guard !photoIDs.isEmpty else { return 0 }
         return pageID(min(currentIndex, photoIDs.count - 1)).hashValue
     }
@@ -2006,6 +1970,10 @@ private struct PhotoPageView: View {
     let load: () -> Data
     let index: Int
     let total: Int
+    /// The photo the viewer shows. Its image is kept when it disappears behind a pushed page
+    /// (a species page), so Back shows it at once instead of a spinner (it is still read and
+    /// decoded again, when the page reappears).
+    let isCurrent: Bool
     @State private var image: PlatformImage?
 
     var body: some View {
@@ -2032,6 +2000,12 @@ private struct PhotoPageView: View {
             }.value
             guard !Task.isCancelled else { return }
             image = decoded
+        }
+        // A page scrolled away keeps its state in the viewer's lazy stack: release its
+        // full-size image (the task decodes it again when the page comes back). By then the
+        // current photo has moved on, so the shown photo is never released this way.
+        .onDisappear {
+            if !isCurrent { image = nil }
         }
     }
 }

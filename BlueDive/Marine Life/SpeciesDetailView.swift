@@ -333,7 +333,7 @@ struct SpeciesDetailView: View {
                     LazyVStack(spacing: 8) {
                         ForEach(dives) { dive in
                             NavigationLink {
-                                DiveDetailView(dive: dive, sortedDives: dives, diveNumber: numberMap[dive.persistentModelID] ?? 0)
+                                DiveDetailView(dive: dive, sortedDives: dives, initialTab: .marineLife, diveNumber: numberMap[dive.persistentModelID] ?? 0)
                                     .closeSheetButtonOnMac(sheetDismiss)
                             } label: {
                                 encounterRow(dive)

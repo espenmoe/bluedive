@@ -864,7 +864,7 @@ struct UnlinkedSightingsView: View {
 
                 ForEach(sortedDives) { dive in
                     NavigationLink {
-                        DiveDetailView(dive: dive, sortedDives: sortedDives, diveNumber: numberMap[dive.persistentModelID] ?? 0)
+                        DiveDetailView(dive: dive, sortedDives: sortedDives, initialTab: .marineLife, diveNumber: numberMap[dive.persistentModelID] ?? 0)
                             .closeSheetButtonOnMac(sheetDismiss)
                     } label: {
                         HStack(spacing: 12) {

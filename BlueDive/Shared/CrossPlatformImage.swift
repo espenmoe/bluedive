@@ -295,8 +295,9 @@ extension View {
 /// the *call site's* type. `some View` hides that type from the type-checker, but the Swift
 /// ABI must still copy the full concrete nested generic at runtime, and each layer adds a
 /// level of recursion to the generated value-witness `initializeWithCopy`. Stacking ten of
-/// these across three sibling sections that all funnel into `DiveDetailView.menuTabContent`
-/// pushed that recursive copy past the stack limit and crashed with `EXC_BAD_ACCESS`
+/// these across three sibling sections that all funnelled into `DiveDetailView.menuTabContent`
+/// (then all on the Overview tab) pushed that
+/// recursive copy past the stack limit and crashed with `EXC_BAD_ACCESS`
 /// (`swift_retain` inside a 13-deep `ExclusiveGesture`/`HStack` witness chain) on every
 /// attempt to open a dive. A build succeeds either way — only a live tap-test catches it.
 ///

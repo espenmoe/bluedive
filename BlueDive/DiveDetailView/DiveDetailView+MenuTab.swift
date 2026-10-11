@@ -5,7 +5,7 @@ import SwiftData
 import PhotosUI
 import UniformTypeIdentifiers
 
-// MARK: - Menu Tab (chart + twin tank checkbox + stats + info)
+// MARK: - Overview Tab (chart + twin tank checkbox + stats + info), Marine Life and Photos Tabs
 
 extension DiveDetailView {
 
@@ -26,9 +26,7 @@ extension DiveDetailView {
             depthProfileSection
             statsGrid
             diveInfoSection
-            photosSection
             equipmentSection
-            marineSightingsSection
             notesSection
         }
         .task(id: dive.id) {
@@ -447,7 +445,7 @@ extension DiveDetailView {
         ]
     }
 
-    /// The dive's photos in strip order: images still in the legacy `photosData` array first
+    /// The dive's photos in grid order: images still in the legacy `photosData` array first
     /// (they were added before), then `DivePhoto` records by capture time (or time added).
     var photoEntries: [DivePhotoEntry] {
         // Legacy ids follow the image content, not its position: after a deletion the next
@@ -467,9 +465,9 @@ extension DiveDetailView {
         return legacy + records.map { DivePhotoEntry(id: $0.id.uuidString, source: .photo($0)) }
     }
 
-    /// Bytes shown in the strip: the thumbnail for a photo record (nil while it has not
+    /// Bytes shown in the photo grid: the thumbnail for a photo record (nil while it has not
     /// arrived from iCloud), the full image for a legacy photo (which has no thumbnail).
-    func stripData(for entry: DivePhotoEntry) -> Data? {
+    func tileData(for entry: DivePhotoEntry) -> Data? {
         switch entry.source {
         case .photo(let photo):
             return photo.thumbnailBytes
@@ -482,7 +480,7 @@ extension DiveDetailView {
     /// Identity of a tile's image: the entry, whether its thumbnail has arrived (read from the
     /// link only), so a thumbnail synced after its photo is decoded when it lands, and the
     /// file's hash, so a photo replaced by a newer version (a re-import) is decoded again.
-    func stripKey(for entry: DivePhotoEntry) -> String {
+    func tileKey(for entry: DivePhotoEntry) -> String {
         switch entry.source {
         case .photo(let photo): return "\(entry.id)|\(photo.thumbnail != nil)|\(photo.contentHash?.hashValue ?? 0)"
         case .legacy: return entry.id
@@ -501,6 +499,25 @@ extension DiveDetailView {
     }
 
     var hasLegacyPhotos: Bool { !(dive.photosData?.isEmpty ?? true) }
+
+    /// Photo grid columns: at least 2 (an iPhone), and more as the view widens (iPad, Mac),
+    /// keeping tiles about 200 pt wide. Derived from the view width the dive screen already tracks
+    /// (less the card's 16 pt padding inside and out), so the count is right on the first
+    /// layout and in the swipe preview too. The count changes only at a threshold, although
+    /// the card is redrawn as the width changes (e.g. during a macOS window resize).
+    var photoGridColumns: [GridItem] {
+        let gridWidth = max(0, viewWidth - 64)
+        let count = max(2, Int((gridWidth + 12) / 212))
+        return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
+    }
+
+    /// The species tagged on a photo, shown under its tile; nil for none (or a legacy photo,
+    /// which cannot be tagged).
+    func speciesCaption(for entry: DivePhotoEntry) -> String? {
+        guard case .photo(let photo) = entry.source else { return nil }
+        let names = (photo.species ?? []).map(\.displayName).sorted()
+        return names.isEmpty ? nil : names.joined(separator: ", ")
+    }
 
     /// Why a photo has no marker on the dive profile; nil when it has one.
     func profileNote(for entry: DivePhotoEntry) -> String? {
@@ -559,7 +576,7 @@ extension DiveDetailView {
                         // Header HStack spacing is 8 pt, so this grows only 4 pt (half the
                         // gap) toward the adjacent Add menu and 12 pt leading into the empty
                         // Spacer. Vertically: 16 pt of card padding above, 12 pt to the photo
-                        // strip below. 40 × 44 pt.
+                        // grid below. 40 × 44 pt.
                         TapTargetInset(top: 12, leading: 12, bottom: 12, trailing: 4) {
                             Image(systemName: "minus.circle")
                                 .font(.title3)
@@ -599,59 +616,35 @@ extension DiveDetailView {
                     .font(.caption)
                     .foregroundStyle(.gray)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
-                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                            // A photo whose thumbnail has not arrived from iCloud yet shows a
-                            // placeholder tile (never its original, CLAUDE.md).
-                            Group {
-                                ZStack(alignment: .topTrailing) {
-                                    PhotoStripTile(imageKey: stripKey(for: entry), load: { stripData(for: entry) })
-                                        .frame(width: 150, height: 150)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            if !isEditingPhotos {
-                                                selectedPhotoForPreview = IdentifiablePhotoData(index: index)
-                                            }
-                                        }
-                                        .onLongPressGesture {
-                                            withAnimation(.easeInOut(duration: 0.2)) {
-                                                isEditingPhotos.toggle()
-                                            }
-                                        }
-                                    if isEditingPhotos, !(entry.isLegacy && legacyPhotosLocked) {
-                                        Button {
-                                            photoIDToDelete = entry.id
-                                            showDeletePhotoAlert = true
-                                        } label: {
-                                            // Badge sits at the photo's top-trailing corner,
-                                            // already 6 pt outside it. Grows 6 pt further
-                                            // trailing (the remaining half of the 12 pt gap to
-                                            // the next photo) and inward over the photo, whose
-                                            // own tap is disabled while editing. Not upward:
-                                            // the strip only has 4 pt of padding there and the
-                                            // section header's buttons are just above. 40 × 34 pt.
-                                            TapTargetInset(top: 0, leading: 16, bottom: 16, trailing: 6) {
-                                                Image(systemName: "minus.circle.fill")
-                                                    .font(.system(size: 18))
-                                                    .symbolRenderingMode(.palette)
-                                                    .foregroundStyle(.white, .red)
-                                            }
-                                        }
-                                        #if os(macOS)
-                                        .buttonStyle(.plain)
-                                        #endif
-                                        .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove Photo %lld", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes one photo, naming its position in the photo strip"), index + 1)))
-                                        .offset(x: 6, y: -6)
-                                        .transition(.scale.combined(with: .opacity))
-                                    }
+                // A grid, not a row: a dive can hold many photos. Lazy, so only the visible
+                // rows decode their thumbnails.
+                LazyVGrid(columns: photoGridColumns, alignment: .leading, spacing: 12) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        // A photo whose thumbnail has not arrived from iCloud yet shows a
+                        // placeholder tile (never its original, CLAUDE.md).
+                        PhotoGridTile(
+                            imageKey: tileKey(for: entry),
+                            load: { tileData(for: entry) },
+                            caption: speciesCaption(for: entry),
+                            position: index + 1,
+                            total: entries.count,
+                            isEditing: isEditingPhotos,
+                            canRemove: !(entry.isLegacy && legacyPhotosLocked),
+                            onOpen: { selectedPhotoForPreview = IdentifiablePhotoData(index: index) },
+                            onToggleEditing: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isEditingPhotos.toggle()
                                 }
+                            },
+                            onRemove: {
+                                photoIDToDelete = entry.id
+                                showDeletePhotoAlert = true
                             }
-                        }
+                        )
                     }
-                    .padding(.vertical, 4)
                 }
+                // Room for the remove badges, which stick out above the first row.
+                .padding(.top, 6)
             }
             if hasLegacyPhotos {
                 legacyPhotosNotice
@@ -728,74 +721,6 @@ extension DiveDetailView {
                 await importPhotosFromFiles(result: result)
             }
         }
-        .alert("Photo Import Failed", isPresented: $showFileImportError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("The selected photos could not be imported.")
-        }
-        .alert("Photos Imported", isPresented: Binding(
-            get: { photoImportResult != nil },
-            set: { if !$0 { photoImportResult = nil } }
-        ), presenting: photoImportResult) { _ in
-            Button("OK", role: .cancel) { }
-        } message: { result in
-            Text(verbatim: ([
-                String(format: NSLocalizedString("Imported: %@", bundle: .forAppLanguage(), value: "Imported: %@", comment: "Photo import summary line: photos added"), Double(result.imported).localizedString(decimals: 0))
-            ] + (result.updated > 0 ? [
-                String(format: NSLocalizedString("Updated: %@", bundle: .forAppLanguage(), value: "Updated: %@", comment: "Photo import summary line: stored photos replaced by a newer version of the same shot, or given a new camera clock correction"), Double(result.updated).localizedString(decimals: 0))
-            ] : []) + (result.moved > 0 ? [
-                String(format: NSLocalizedString("Moved from another dive: %@", bundle: .forAppLanguage(), value: "Moved from another dive: %@", comment: "Photo import summary line: stored photos moved to this dive by an Update"), Double(result.moved).localizedString(decimals: 0))
-            ] : []) + [
-                String(format: NSLocalizedString("Already in BlueDive: %@", bundle: .forAppLanguage(), value: "Already in BlueDive: %@", comment: "Photo import summary line: files skipped because the same photo is already in BlueDive"), Double(result.duplicates).localizedString(decimals: 0))
-            ] + (result.olderSkipped > 0 ? [
-                String(format: NSLocalizedString("Older versions: %@", bundle: .forAppLanguage(), value: "Older versions: %@", comment: "Photo import summary line (short, to fit a macOS alert): files skipped because BlueDive already has a newer version of the same shot"), Double(result.olderSkipped).localizedString(decimals: 0))
-            ] : []) + (result.skippedByUser > 0 ? [
-                String(format: NSLocalizedString("Skipped: %@", bundle: .forAppLanguage(), value: "Skipped: %@", comment: "Photo import summary line: files the user chose to skip"), Double(result.skippedByUser).localizedString(decimals: 0))
-            ] : []) + [
-                String(format: NSLocalizedString("Could not be read: %@", bundle: .forAppLanguage(), value: "Could not be read: %@", comment: "Photo import summary line: files that are not readable images"), Double(result.unreadable).localizedString(decimals: 0))
-            ] + (result.failedToSave > 0 ? [
-                String(format: NSLocalizedString("Could not be saved: %@", bundle: .forAppLanguage(), value: "Could not be saved: %@", comment: "Photo import summary line: photos lost because saving to the database failed"), Double(result.failedToSave).localizedString(decimals: 0))
-            ] : []) + (result.legacyNotTrimmed ? [
-                NSLocalizedString("The converted photos could not be removed from the previous format. Convert again to finish.", bundle: .forAppLanguage(), value: "The converted photos could not be removed from the previous format. Convert again to finish.", comment: "Photo conversion summary line: the records were saved but the old copies are still there")
-            ] : [])).joined(separator: "\n"))
-        }
-        .sheet(isPresented: Binding(
-            get: { !reimportQuestions.isEmpty },
-            set: { shown in
-                // Closed without an answer (not by its buttons): every file is left out, so
-                // the import finishes and the dive is not left busy.
-                if !shown, reimportFirstPass != nil {
-                    startAnsweringReimportQuestions(reimportQuestions.map { ($0, .skip) })
-                }
-                if !shown { reimportQuestions = [] }
-            }
-        ), onDismiss: {
-            // The summary or species review, once the sheet has fully closed: presenting one
-            // while it is still closing can be dropped.
-            photoImportSession.decisionSheetOpen = false
-            if let pending = photoImportSession.pendingSummary {
-                photoImportSession.pendingSummary = nil
-                finishPhotoImport(pending.result, diveID: pending.diveID)
-            }
-        }) {
-            PhotoReimportSheet(questions: reimportQuestions) { answers in
-                startAnsweringReimportQuestions(answers)
-            }
-            .standardSheetPresentation()
-        }
-        .sheet(isPresented: Binding(
-            get: { !speciesProposals.isEmpty },
-            set: { if !$0 { speciesProposals = [] } }
-        ), onDismiss: {
-            // The import's problems, once the species review is closed.
-            if let pending = pendingPhotoImportResult {
-                pendingPhotoImportResult = nil
-                photoImportResult = pending
-            }
-        }) {
-            SpeciesPhotoReviewSheet(proposals: speciesProposals, afterImport: true)
-                .standardSheetPresentation()
-        }
         .alert("Convert Photos", isPresented: $showConvertLegacyPhotosAlert) {
             Button("Convert") {
                 Task { await convertLegacyPhotos() }
@@ -804,6 +729,81 @@ extension DiveDetailView {
         } message: {
             Text("Each photo is stored as its own record, with a thumbnail and the capture time read from the image. The images themselves are not changed. Photos taken during the dive appear on the dive profile.")
         }
+    }
+
+    /// The photo import's results and questions. Attached to the always-shown tab bar rather
+    /// than the Photos card, so an import that finishes (or asks) while another tab is open
+    /// still presents them.
+    func photoImportDialogs(_ content: some View) -> some View {
+        content
+            .alert("Photo Import Failed", isPresented: $showFileImportError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("The selected photos could not be imported.")
+            }
+            .alert("Photos Imported", isPresented: Binding(
+                get: { photoImportResult != nil },
+                set: { if !$0 { photoImportResult = nil } }
+            ), presenting: photoImportResult) { _ in
+                Button("OK", role: .cancel) { }
+            } message: { result in
+                Text(verbatim: ([
+                    String(format: NSLocalizedString("Imported: %@", bundle: .forAppLanguage(), value: "Imported: %@", comment: "Photo import summary line: photos added"), Double(result.imported).localizedString(decimals: 0))
+                ] + (result.updated > 0 ? [
+                    String(format: NSLocalizedString("Updated: %@", bundle: .forAppLanguage(), value: "Updated: %@", comment: "Photo import summary line: stored photos replaced by a newer version of the same shot, or given a new camera clock correction"), Double(result.updated).localizedString(decimals: 0))
+                ] : []) + (result.moved > 0 ? [
+                    String(format: NSLocalizedString("Moved from another dive: %@", bundle: .forAppLanguage(), value: "Moved from another dive: %@", comment: "Photo import summary line: stored photos moved to this dive by an Update"), Double(result.moved).localizedString(decimals: 0))
+                ] : []) + [
+                    String(format: NSLocalizedString("Already in BlueDive: %@", bundle: .forAppLanguage(), value: "Already in BlueDive: %@", comment: "Photo import summary line: files skipped because the same photo is already in BlueDive"), Double(result.duplicates).localizedString(decimals: 0))
+                ] + (result.olderSkipped > 0 ? [
+                    String(format: NSLocalizedString("Older versions: %@", bundle: .forAppLanguage(), value: "Older versions: %@", comment: "Photo import summary line (short, to fit a macOS alert): files skipped because BlueDive already has a newer version of the same shot"), Double(result.olderSkipped).localizedString(decimals: 0))
+                ] : []) + (result.skippedByUser > 0 ? [
+                    String(format: NSLocalizedString("Skipped: %@", bundle: .forAppLanguage(), value: "Skipped: %@", comment: "Photo import summary line: files the user chose to skip"), Double(result.skippedByUser).localizedString(decimals: 0))
+                ] : []) + [
+                    String(format: NSLocalizedString("Could not be read: %@", bundle: .forAppLanguage(), value: "Could not be read: %@", comment: "Photo import summary line: files that are not readable images"), Double(result.unreadable).localizedString(decimals: 0))
+                ] + (result.failedToSave > 0 ? [
+                    String(format: NSLocalizedString("Could not be saved: %@", bundle: .forAppLanguage(), value: "Could not be saved: %@", comment: "Photo import summary line: photos lost because saving to the database failed"), Double(result.failedToSave).localizedString(decimals: 0))
+                ] : []) + (result.legacyNotTrimmed ? [
+                    NSLocalizedString("The converted photos could not be removed from the previous format. Convert again to finish.", bundle: .forAppLanguage(), value: "The converted photos could not be removed from the previous format. Convert again to finish.", comment: "Photo conversion summary line: the records were saved but the old copies are still there")
+                ] : [])).joined(separator: "\n"))
+            }
+            .sheet(isPresented: Binding(
+                get: { !reimportQuestions.isEmpty },
+                set: { shown in
+                    // Closed without an answer (not by its buttons): every file is left out, so
+                    // the import finishes and the dive is not left busy.
+                    if !shown, reimportFirstPass != nil {
+                        startAnsweringReimportQuestions(reimportQuestions.map { ($0, .skip) })
+                    }
+                    if !shown { reimportQuestions = [] }
+                }
+            ), onDismiss: {
+                // The summary or species review, once the sheet has fully closed: presenting one
+                // while it is still closing can be dropped.
+                photoImportSession.decisionSheetOpen = false
+                if let pending = photoImportSession.pendingSummary {
+                    photoImportSession.pendingSummary = nil
+                    finishPhotoImport(pending.result, diveID: pending.diveID)
+                }
+            }) {
+                PhotoReimportSheet(questions: reimportQuestions) { answers in
+                    startAnsweringReimportQuestions(answers)
+                }
+                .standardSheetPresentation()
+            }
+            .sheet(isPresented: Binding(
+                get: { !speciesProposals.isEmpty },
+                set: { if !$0 { speciesProposals = [] } }
+            ), onDismiss: {
+                // The import's problems, once the species review is closed.
+                if let pending = pendingPhotoImportResult {
+                    pendingPhotoImportResult = nil
+                    photoImportResult = pending
+                }
+            }) {
+                SpeciesPhotoReviewSheet(proposals: speciesProposals, afterImport: true)
+                    .standardSheetPresentation()
+            }
     }
 
     /// Shown while the dive still has photos in the legacy storage format.
@@ -1150,7 +1150,7 @@ extension DiveDetailView {
             HStack {
                 Label("Marine Life Seen", systemImage: "fish")
                     .font(.headline)
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(.orange)
                 Spacer()
                 if !(dive.seenFish ?? []).isEmpty {
                     Button {
@@ -1163,7 +1163,7 @@ extension DiveDetailView {
                         TapTargetInset(top: 12, leading: 12, bottom: 12, trailing: 4) {
                             Image(systemName: "minus.circle")
                                 .font(.title3)
-                                .foregroundStyle(.cyan)
+                                .foregroundStyle(.orange)
                         }
                     }
                     .buttonStyle(.plain)
@@ -1175,7 +1175,7 @@ extension DiveDetailView {
                     TapTargetInset(top: 12, leading: 4, bottom: 12, trailing: 12) {
                         Image(systemName: "plus.circle")
                             .font(.title3)
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(.orange)
                     }
                 }
                 .accessibilityLabel(Text("Add Marine Life"))
@@ -1187,7 +1187,7 @@ extension DiveDetailView {
                     .font(.caption)
                     .foregroundStyle(.gray)
             } else {
-                fishScrollView
+                fishGrid
             }
         }
         .padding()
@@ -1212,50 +1212,57 @@ extension DiveDetailView {
         }
     }
 
-    var fishScrollView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 12) {
-                ForEach(dive.seenFish ?? []) { fish in
-                    ZStack(alignment: .topTrailing) {
-                        FishChipView(fish: fish)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if !isEditingMarineLife {
-                                    fishToEdit = fish
-                                }
+    var fishGrid: some View {
+        // A grid, like the photos: a dive can list many critters.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], spacing: 12) {
+            ForEach(dive.seenFish ?? []) { fish in
+                ZStack(alignment: .topTrailing) {
+                    FishChipView(fish: fish)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if !isEditingMarineLife {
+                                fishToEdit = fish
                             }
-                            .onLongPressGesture {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isEditingMarineLife.toggle()
-                                }
-                            }
-                        if isEditingMarineLife {
-                            Button {
-                                fishToDelete = fish
-                                showDeleteFishAlert = true
-                            } label: {
-                                // Same geometry as the photo badge: 6 pt trailing (half of the
-                                // 12 pt gap to the next chip), inward over the chip, and
-                                // nothing upward. 40 × 34 pt.
-                                TapTargetInset(top: 0, leading: 16, bottom: 16, trailing: 6) {
-                                    Image(systemName: "minus.circle.fill")
-                                        .font(.system(size: 18))
-                                        .symbolRenderingMode(.palette)
-                                        .foregroundStyle(.white, .red)
-                                }
-                            }
-                            #if os(macOS)
-                            .buttonStyle(.plain)
-                            #endif
-                            .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove %@", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes a filter chip, naming the specific value it removes"), fish.name)))
-                            .offset(x: 6, y: -6)
-                            .transition(.scale.combined(with: .opacity))
                         }
+                        // One VoiceOver element (name and quantity) that opens the editor,
+                        // except in edit mode, where only the remove badge acts.
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(isEditingMarineLife ? [] : .isButton)
+                        .accessibilityAction {
+                            if !isEditingMarineLife { fishToEdit = fish }
+                        }
+                        .onLongPressGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isEditingMarineLife.toggle()
+                            }
+                        }
+                    if isEditingMarineLife {
+                        Button {
+                            fishToDelete = fish
+                            showDeleteFishAlert = true
+                        } label: {
+                            // Same geometry as the photo badge: 6 pt trailing (half of the
+                            // 12 pt gap to the next chip), inward over the chip, and
+                            // nothing upward. 40 × 34 pt.
+                            TapTargetInset(top: 0, leading: 16, bottom: 16, trailing: 6) {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 18))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, .red)
+                            }
+                        }
+                        #if os(macOS)
+                        .buttonStyle(.plain)
+                        #endif
+                        .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove %@", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes a filter chip, naming the specific value it removes"), fish.name)))
+                        .offset(x: 6, y: -6)
+                        .transition(.scale.combined(with: .opacity))
                     }
                 }
             }
-            .padding(.vertical, 4)
         }
+        // Room for the remove badges, which stick out above the first row.
+        .padding(.top, 6)
     }
 
     // MARK: - All-Tanks Summary Helpers
@@ -1849,11 +1856,82 @@ extension View {
 }
 #endif
 
-/// A photo strip tile: the image, decoded once per image off the main thread (not in the
+/// One photo in a dive's photo grid: a 4:3 tile, the species tagged on it underneath, and the
+/// remove badge while editing. Its own struct so the grid's generated type stays shallow
+/// (see `TapTargetInset`).
+struct PhotoGridTile: View {
+    let imageKey: String
+    let load: () -> Data?
+    let caption: String?
+    let position: Int
+    let total: Int
+    let isEditing: Bool
+    let canRemove: Bool
+    let onOpen: () -> Void
+    let onToggleEditing: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Color.clear
+                .aspectRatio(4 / 3, contentMode: .fit)
+                .overlay { PhotoThumbnailTile(imageKey: imageKey, load: load) }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !isEditing { onOpen() }
+                }
+                .onLongPressGesture {
+                    onToggleEditing()
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Photo %@ of %@", bundle: .forAppLanguage(), value: "Photo %@ of %@", comment: "Announces the current photo's position while paging through photos (locale-formatted numbers)"), Double(position).localizedString(decimals: 0), Double(total).localizedString(decimals: 0))))
+                .accessibilityValue(Text(verbatim: caption ?? ""))
+                // Opens the viewer, except in edit mode (where only the remove badge acts).
+                .accessibilityAddTraits(isEditing ? [] : .isButton)
+                .accessibilityAction {
+                    if !isEditing { onOpen() }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isEditing, canRemove {
+                        Button(action: onRemove) {
+                            // Badge sits at the tile's top-trailing corner, 6 pt outside it.
+                            // Grows 6 pt further trailing (half of the 12 pt gap to the next
+                            // tile) and inward over the tile, whose own tap is disabled while
+                            // editing. Not upward: the grid only has 6 pt above its first row,
+                            // under the section header's buttons. 40 × 34 pt.
+                            TapTargetInset(top: 0, leading: 16, bottom: 16, trailing: 6) {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 18))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, .red)
+                            }
+                        }
+                        #if os(macOS)
+                        .buttonStyle(.plain)
+                        #endif
+                        .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove Photo %@", bundle: .forAppLanguage(), value: "Remove Photo %@", comment: "Accessibility label for a button that removes one photo, naming its position in the dive's photos (locale-formatted number)"), Double(position).localizedString(decimals: 0))))
+                        .offset(x: 6, y: -6)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
+            if let caption {
+                Text(verbatim: caption)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+/// A photo thumbnail tile: the image, decoded once per image off the main thread (not in the
 /// photos section's body, which re-renders on every edit-mode toggle or import progress), or a
 /// placeholder while there is none (a thumbnail not arrived from iCloud yet). A large image (a
 /// legacy photo has no thumbnail) is scaled down to the tile's size, not decoded in full.
-struct PhotoStripTile: View {
+struct PhotoThumbnailTile: View {
     let imageKey: String
     let load: () -> Data?
     @State private var image: PlatformImage?

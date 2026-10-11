@@ -15,6 +15,8 @@ enum DiveTab: String, CaseIterable, Identifiable {
     case siteDetails = "Site Details"
     case conditions  = "Conditions"
     case gaz         = "Gas"
+    case photos      = "Photos"
+    case marineLife  = "Marine Life"
     case samples     = "Samples"
     case xmlExport   = "XML Export"
     case uddfExport  = "UDDF Export"
@@ -27,6 +29,8 @@ enum DiveTab: String, CaseIterable, Identifiable {
         case .siteDetails: return "Site Details"
         case .conditions:  return "Conditions"
         case .gaz:         return "Gas"
+        case .marineLife:  return "Marine Life"
+        case .photos:      return "Photos"
         case .samples:     return "Samples"
         case .xmlExport:   return "XML Export"
         case .uddfExport:  return "UDDF Export"
@@ -44,6 +48,8 @@ enum DiveTab: String, CaseIterable, Identifiable {
         case .siteDetails: return "mappin.and.ellipse.circle"
         case .conditions:  return "cloud.sun"
         case .gaz:         return "bubbles.and.sparkles"
+        case .marineLife:  return "fish"
+        case .photos:      return "photo.on.rectangle"
         case .samples:     return "waveform.path.ecg"
         case .xmlExport:   return "doc.text.magnifyingglass"
         case .uddfExport:  return "doc.badge.gearshape.fill"
@@ -56,6 +62,8 @@ enum DiveTab: String, CaseIterable, Identifiable {
         case .siteDetails: return .blue
         case .conditions:  return .yellow
         case .gaz:         return .green
+        case .marineLife:  return .orange
+        case .photos:      return .pink
         case .samples:     return .teal
         case .xmlExport:   return .indigo
         case .uddfExport:  return .teal
@@ -132,7 +140,7 @@ struct DiveDetailView: View {
     // (previous/next buttons, VoiceOver actions). A swipe never needs it: the preview only
     // appears once dragOffset is already non-zero, and its sign gives the side.
     @State private var pendingEntersFromTrailing: Bool = false
-    @State private var viewWidth: CGFloat = 400
+    @State var viewWidth: CGFloat = 400
     @State private var scrollLocked: Bool = false
     @State private var unlockToken: UUID = UUID()
     @State private var isNavigating: Bool = false
@@ -263,7 +271,9 @@ struct DiveDetailView: View {
 
                 // Current dive content
                 VStack(spacing: 0) {
-                    diveTabBar
+                    // The photo import's dialogs hang on the tab bar, which is always shown, so
+                    // an import finishing while another tab is open still presents them.
+                    photoImportDialogs(diveTabBar)
 
                     ScrollViewReader { proxy in
                         ScrollView {
@@ -274,6 +284,8 @@ struct DiveDetailView: View {
                                 case .siteDetails: siteDetailsTabContent
                                 case .conditions:  conditionsTabContent
                                 case .gaz:         gazTabContent
+                                case .marineLife:  marineSightingsSection
+                                case .photos:      photosSection
                                 case .samples:     samplesTabContent
                                 case .xmlExport:   xmlExportTabContent
                                 case .uddfExport:  uddfExportTabContent
@@ -290,6 +302,11 @@ struct DiveDetailView: View {
                         // Leave the Samples tab if it is hidden in Settings while it is shown.
                         .onChange(of: prefs.showSamplesTab) { _, isShown in
                             if !isShown && selectedTab == .samples { selectedTab = .menu }
+                        }
+                        // Leave photo and marine life edit mode with their tab.
+                        .onChange(of: selectedTab) { _, _ in
+                            isEditingPhotos = false
+                            isEditingMarineLife = false
                         }
                     }
                 }
@@ -629,43 +646,52 @@ struct DiveDetailView: View {
     // MARK: - Tab Bar
 
     private var diveTabBar: some View {
-        // iOS : tab bar scrollable avec indicateur coloré
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(DiveTab.visibleCases.filter { $0 != .samples || prefs.showSamplesTab }) { tab in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTab = tab
+        // Scrollable tab bar, the selected tab marked in its colour.
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(DiveTab.visibleCases.filter { $0 != .samples || prefs.showSamplesTab }) { tab in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedTab = tab
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                Image(systemName: tab.icon)
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(selectedTab == tab ? tab.color : .secondary)
+                                Text(tab.localizedName)
+                                    .font(.caption2)
+                                    .fontWeight(selectedTab == tab ? .semibold : .regular)
+                                    .foregroundStyle(selectedTab == tab ? tab.color : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 20)
+                            .contentShape(Rectangle())
+                            .background(
+                                selectedTab == tab
+                                    ? tab.color.opacity(0.12)
+                                    : Color.clear
+                            )
+                            .animation(.easeInOut(duration: 0.2), value: selectedTab)
+                            .overlay(
+                                Rectangle()
+                                    .fill(selectedTab == tab ? tab.color : Color.clear)
+                                    .frame(height: 2),
+                                alignment: .bottom
+                            )
                         }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: tab.icon)
-                                .font(.system(size: 18))
-                                .foregroundStyle(selectedTab == tab ? tab.color : .secondary)
-                            Text(tab.localizedName)
-                                .font(.caption2)
-                                .fontWeight(selectedTab == tab ? .semibold : .regular)
-                                .foregroundStyle(selectedTab == tab ? tab.color : .secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 20)
-                        .contentShape(Rectangle())
-                        .background(
-                            selectedTab == tab
-                                ? tab.color.opacity(0.12)
-                                : Color.clear
-                        )
-                        .animation(.easeInOut(duration: 0.2), value: selectedTab)
-                        .overlay(
-                            Rectangle()
-                                .fill(selectedTab == tab ? tab.color : Color.clear)
-                                .frame(height: 2),
-                            alignment: .bottom
-                        )
+                        .buttonStyle(.plain)
+                        .id(tab)
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+            // Keep the selected tab in view: the bar is wider than an iPhone screen, and a dive
+            // can open on a later tab (e.g. Marine Life, from a species).
+            .onAppear { proxy.scrollTo(selectedTab) }
+            .onChange(of: selectedTab) { _, tab in
+                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(tab) }
             }
         }
         .background(Color.primary.opacity(0.05))
@@ -686,6 +712,14 @@ struct DiveDetailView: View {
             EditGazView(dive: dive, tankIndex: selectedTankIndex) { newIndex in
                 selectedTankIndex = newIndex
             }
+        case .marineLife:
+            // Marine life is added and removed with its card's own buttons.
+            noEditAvailableView(title: DiveTab.marineLife.localizedName,
+                                message: "Add or remove marine life with the buttons on its card.")
+        case .photos:
+            // Photos are added and removed with their card's own buttons.
+            noEditAvailableView(title: DiveTab.photos.localizedName,
+                                message: "Add or remove photos with the buttons on their card.")
         case .samples:
             // Samples come from a dive computer — no manual editing
             noEditAvailableView(title: DiveTab.samples.localizedName,

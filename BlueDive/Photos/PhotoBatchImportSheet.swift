@@ -248,7 +248,7 @@ struct PhotoBatchImportSheet: View {
             } header: {
                 Text(verbatim: String(format: NSLocalizedString("Not Matched (%@)", bundle: .forAppLanguage(), value: "Not Matched (%@)", comment: "Section header: photos that match no dive and will be skipped, with their count"), Double(unmatchedRows.count).localizedString(decimals: 0)))
             } footer: {
-                Text("These photos are skipped. You can still add them to a dive from its Photos section.")
+                Text("These photos are skipped. You can still add them to a dive from its Photos tab.")
             }
         }
     }
