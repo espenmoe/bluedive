@@ -1572,8 +1572,14 @@ struct PhotoPreviewSheet: View {
     /// viewer shows the thumbnail and Share / Save As are disabled — the thumbnail is never
     /// handed out as the photo — and the page reloads when the original arrives.
     let hasOriginal: (Int) -> Bool
+    /// A species whose name under the photo does not open its page: the viewer was opened
+    /// from that species' own page, which is then one step back.
+    let speciesPageShown: PersistentIdentifier?
     @Environment(\.dismiss) private var dismiss
+    @Environment(DiveStore.self) private var store
     @State private var currentIndex: Int
+    /// The species whose page is pushed from the names under the photo.
+    @State private var shownSpecies: Species?
     @State private var showDeleteAlert = false
     /// The photo the Remove confirmation is about, taken when the button is tapped.
     @State private var deleteTargetID: String?
@@ -1590,7 +1596,9 @@ struct PhotoPreviewSheet: View {
          photoRecord: @escaping (Int) -> DivePhoto? = { _ in nil },
          canDelete: @escaping (Int) -> Bool = { _ in true },
          hasOriginal: @escaping (Int) -> Bool = { _ in true },
+         speciesPageShown: PersistentIdentifier? = nil,
          onDelete: ((String) -> Void)?) {
+        self.speciesPageShown = speciesPageShown
         self.canDelete = canDelete
         self.hasOriginal = hasOriginal
         self.photoIDs = photoIDs
@@ -1607,6 +1615,50 @@ struct PhotoPreviewSheet: View {
         // already has a valid filename — avoids an empty-name SharePreview.
         let exportPrefix = NSLocalizedString("BlueDive Photo", bundle: Bundle.forAppLanguage(), comment: "Prefix for exported photo filenames shown in share sheet and save dialog")
         self._cachedExportName = State(initialValue: "\(exportPrefix) \(PhotoPreviewSheet.exportDateFormatter.string(from: Date()))")
+    }
+
+    /// The species on the photo, each opening its page (pushed in this viewer, Back returns
+    /// to the photo); the species whose page opened the viewer is shown as plain text.
+    @ViewBuilder
+    private func speciesLinks(_ species: [Species]) -> some View {
+        ForEach(species) { item in
+            let label = Label {
+                Text(verbatim: item.displayName)
+            } icon: {
+                Image(systemName: "fish.fill")
+                    .foregroundStyle(.orange)
+            }
+            .font(.caption.weight(.semibold))
+            if item.persistentModelID == speciesPageShown {
+                label
+            } else {
+                Button {
+                    shownSpecies = item
+                } label: {
+                    HStack(spacing: 4) {
+                        label
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                    // A comfortable tap target around the small caption text.
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .borderlessButton()
+                .foregroundStyle(.primary)
+                .accessibilityHint(Text("Opens species details"))
+            }
+        }
+    }
+
+    /// Dive numbers for the pages pushed from a species page (as Marine Life builds them).
+    /// Read only while a species page is shown (when the viewer redraws then).
+    private var diveNumberMap: [PersistentIdentifier: Int] {
+        let total = store.dives.count
+        return Dictionary(store.dives.enumerated().map { ($0.element.persistentModelID, total - $0.offset) },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     // Returns nil when photos is empty so callers never subscript into an empty array,
@@ -1656,18 +1708,16 @@ struct PhotoPreviewSheet: View {
             .overlay(alignment: .bottom) {
                 if !photoIDs.isEmpty {
                     let index = min(currentIndex, photoIDs.count - 1)
-                    let speciesNames = (photoRecord(index)?.species ?? []).map(\.displayName).sorted()
+                    let species = (photoRecord(index)?.species ?? []).sorted { $0.displayName < $1.displayName }
                     let note = photoNote(index)
-                    if !speciesNames.isEmpty || note != nil {
+                    if !species.isEmpty || note != nil {
                         VStack(spacing: 4) {
-                            if !speciesNames.isEmpty {
-                                Label {
-                                    Text(verbatim: speciesNames.joined(separator: " · "))
-                                } icon: {
-                                    Image(systemName: "fish.fill")
-                                        .foregroundStyle(.orange)
+                            if !species.isEmpty {
+                                // Side by side when they fit, else one per line.
+                                ViewThatFits(in: .horizontal) {
+                                    HStack(spacing: 16) { speciesLinks(species) }
+                                    VStack(spacing: 6) { speciesLinks(species) }
                                 }
-                                .font(.caption.weight(.semibold))
                             }
                             if let note {
                                 Text(verbatim: note)
@@ -1685,6 +1735,11 @@ struct PhotoPreviewSheet: View {
             .sheet(item: $taggingPhoto) { photo in
                 PhotoSpeciesTagSheet(photo: photo)
                     .standardSheetPresentation()
+            }
+            .navigationDestination(item: $shownSpecies) { species in
+                SpeciesDetailView(species: species, numberMap: diveNumberMap, closeSheet: { dismiss() },
+                                  offersDiveFilter: false)
+                    .closeSheetButtonOnMac { dismiss() }
             }
             .toolbar {
                 if photoIDs.count > 1 {

@@ -6,11 +6,15 @@ import MapKit
 
 /// One species of the catalogue: its profile, statistics over the dives it was seen on,
 /// encounter history, photos, distribution map and notes. Pushed inside the Marine Life
-/// sheet; `closeSheet` dismisses that sheet (see `closeSheetButtonOnMac`).
+/// sheet (or the photo viewer); `closeSheet` dismisses that sheet (see `closeSheetButtonOnMac`).
 struct SpeciesDetailView: View {
     @Bindable var species: Species
     let numberMap: [PersistentIdentifier: Int]
     let closeSheet: () -> Void
+    /// Offers "View Dives with This Critter", which filters the dive list and closes the
+    /// sheet. Off in the photo viewer: closing it would only return to the dive shown, with
+    /// the list filtered behind it.
+    var offersDiveFilter = true
 
     @Environment(DiveStore.self) private var store
     @Environment(\.modelContext) private var modelContext
@@ -25,6 +29,11 @@ struct SpeciesDetailView: View {
     @State private var showMerge = false
     @State private var showDeleteAlert = false
     @State private var photoPreview: IdentifiablePhotoData?
+    /// The photos when the viewer was opened, for a viewer still open after the species is
+    /// gone (its photos stay on their dives).
+    @State private var previewPhotos: [DivePhoto] = []
+    /// This species' identifier, kept with them, so the viewer never reads a gone species.
+    @State private var previewSpeciesID: PersistentIdentifier?
     @State private var showLookup = false
 
     /// Dives of sightings recorded under one of the species' names but not linked to it (an
@@ -44,72 +53,29 @@ struct SpeciesDetailView: View {
         (species.photos ?? []).sorted { ($0.captureDate ?? $0.createdAt) < ($1.captureDate ?? $1.createdAt) }
     }
 
-    var body: some View {
-        let dives = dives
-        ScrollView {
-            VStack(spacing: 20) {
-                header
-                Picker(selection: $tab) {
-                    Text("Overview").tag(Tab.overview)
-                    Text("Photos").tag(Tab.photos)
-                    Text("Distribution").tag(Tab.distribution)
-                    Text("Notes").tag(Tab.notes)
-                } label: {
-                    Text("Section")
-                }
-                .fullWidthSegmentedPicker()
-                .padding(.horizontal)
+    /// The species was deleted or merged from another page of it higher in the stack (e.g.
+    /// opened again from a photo of one of its dives): this page must no longer read it. Its
+    /// content goes blank, but its sheets stay attached, so a photo viewer opened from here
+    /// (and what was opened from it) stays open.
+    private var isGone: Bool { species.isDeleted || species.modelContext == nil }
 
-                switch tab {
-                case .overview: overview(dives)
-                case .photos: photosGrid
-                case .distribution: distribution(dives)
-                case .notes: notesCard
-                }
+    var body: some View {
+        let isGone = isGone
+        let dives = isGone ? [] : dives
+        ScrollView {
+            if !isGone {
+                content(dives)
             }
-            .padding(.vertical)
         }
         .background(AppBackground().ignoresSafeArea())
-        .task(id: "\(store.marineLifeVersion)|\(species.commonName)|\(species.altNames?.count ?? 0)") {
-            guard !species.isDeleted, species.modelContext != nil else { return }
+        .task(id: isGone ? "" : "\(store.marineLifeVersion)|\(species.commonName)|\(species.altNames?.count ?? 0)") {
+            guard !self.isGone else { return }
             unlinkedSightingDives = SpeciesCatalog.unlinkedSightings(of: species, in: modelContext).compactMap(\.dive)
         }
-        .navigationTitle(Text(verbatim: species.displayName))
+        .navigationTitle(Text(verbatim: isGone ? "" : species.displayName))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .sheetPrimaryAction) {
-                Button {
-                    showEdit = true
-                } label: {
-                    Image(systemName: "pencil")
-                }
-                .accessibilityLabel(Text("Edit Species"))
-            }
-            ToolbarItem(placement: .sheetPrimaryAction) {
-                Menu {
-                    if prefs.fetchTaxonomyOnline {
-                        Button {
-                            showLookup = true
-                        } label: {
-                            Label("Look Up on iNaturalist", systemImage: "leaf")
-                        }
-                    }
-                    Button {
-                        showMerge = true
-                    } label: {
-                        Label("Merge Into Another Species…", systemImage: "arrow.triangle.merge")
-                    }
-                    Button(role: .destructive) {
-                        showDeleteAlert = true
-                    } label: {
-                        Label("Delete Species", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .toolbarMenuIndicatorHiddenOnMac()
-                .accessibilityLabel(Text("More"))
-            }
+            if !isGone { toolbarItems }
         }
         .sheet(isPresented: $showEdit) {
             EditSpeciesView(species: species)
@@ -134,7 +100,7 @@ struct SpeciesDetailView: View {
             .standardSheetPresentation()
         }
         .sheet(item: $photoPreview) { item in
-            let photos = photos
+            let photos = isGone ? previewPhotos.filter { !$0.isDeleted && $0.modelContext != nil } : photos
             PhotoPreviewSheet(
                 photoIDs: photos.map(\.id.uuidString),
                 photoData: { index in
@@ -144,6 +110,7 @@ struct SpeciesDetailView: View {
                 initialIndex: item.index,
                 photoRecord: { index in photos.indices.contains(index) ? photos[index] : nil },
                 hasOriginal: { index in photos.indices.contains(index) && photos[index].original != nil },
+                speciesPageShown: previewSpeciesID,
                 onDelete: nil
             )
             .standardSheetPresentation()
@@ -163,6 +130,67 @@ struct SpeciesDetailView: View {
         } message: {
             Text("The species is removed from the catalogue. Its sightings stay on their dives with the names they were recorded with, and its photos stay on their dives.")
         }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
+        ToolbarItem(placement: .sheetPrimaryAction) {
+            Button {
+                showEdit = true
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .accessibilityLabel(Text("Edit Species"))
+        }
+        ToolbarItem(placement: .sheetPrimaryAction) {
+            Menu {
+                if prefs.fetchTaxonomyOnline {
+                    Button {
+                        showLookup = true
+                    } label: {
+                        Label("Look Up on iNaturalist", systemImage: "leaf")
+                    }
+                }
+                Button {
+                    showMerge = true
+                } label: {
+                    Label("Merge Into Another Species…", systemImage: "arrow.triangle.merge")
+                }
+                Button(role: .destructive) {
+                    showDeleteAlert = true
+                } label: {
+                    Label("Delete Species", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .toolbarMenuIndicatorHiddenOnMac()
+            .accessibilityLabel(Text("More"))
+        }
+    }
+
+    private func content(_ dives: [Dive]) -> some View {
+        VStack(spacing: 20) {
+            header
+            Picker(selection: $tab) {
+                Text("Overview").tag(Tab.overview)
+                Text("Photos").tag(Tab.photos)
+                Text("Distribution").tag(Tab.distribution)
+                Text("Notes").tag(Tab.notes)
+            } label: {
+                Text("Section")
+            }
+            .fullWidthSegmentedPicker()
+            .padding(.horizontal)
+
+            switch tab {
+            case .overview: overview(dives)
+            case .photos: photosGrid
+            case .distribution: distribution(dives)
+            case .notes: notesCard
+            }
+        }
+        .padding(.vertical)
     }
 
     // MARK: Header
@@ -247,7 +275,7 @@ struct SpeciesDetailView: View {
             }
             .padding(.horizontal)
 
-            if !dives.isEmpty {
+            if offersDiveFilter, !dives.isEmpty {
                 Button {
                     viewDivesWithSpecies()
                 } label: {
@@ -437,6 +465,8 @@ struct SpeciesDetailView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], spacing: 8) {
                 ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
                     Button {
+                        previewPhotos = photos
+                        previewSpeciesID = species.persistentModelID
                         photoPreview = IdentifiablePhotoData(index: index)
                     } label: {
                         Group {
