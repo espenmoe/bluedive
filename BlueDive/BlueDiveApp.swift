@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import CoreData
+import CloudKit
 import UserNotifications
 import os.log
 import LibDCSwift
@@ -485,7 +486,7 @@ struct BlueDiveApp: App {
 
     /// Uploads a representative record for every model, with a value for every field Core Data
     /// may write (including the `CD_<field>_ckAsset` fields of large values and fields the app
-    /// never fills, such as `Species.sourceIdentifier`), then deletes those records. CloudKit
+    /// has not filled in any record yet), then deletes those records. CloudKit
     /// creates a field only when a record carries a value for it, so data entered by hand
     /// cannot complete the schema. Apple's documented SwiftData approach: Core Data loads the
     /// same store, initializes the schema, and unloads the store before SwiftData opens it,
@@ -521,6 +522,19 @@ struct BlueDiveApp: App {
             logger.info("✅ CloudKit development schema initialized — check the CloudKit Console")
         } catch {
             logger.error("❌ CloudKit schema initialization failed: \(error.localizedDescription)")
+            // Core Data wraps the cause (usually a CloudKit error): log the whole chain, with
+            // each failed record of a partial failure.
+            var next: NSError? = error as NSError
+            while let current = next {
+                logger.error("   \(current.domain) \(current.code): \(current.localizedDescription) — \(current.userInfo, privacy: .public)")
+                if let partial = current.userInfo[CKPartialErrorsByItemIDKey] as? [AnyHashable: Error] {
+                    for (item, itemError) in partial.prefix(20) {
+                        let nsItemError = itemError as NSError
+                        logger.error("   record \(String(describing: item), privacy: .public): \(nsItemError.domain) \(nsItemError.code) \(nsItemError.localizedDescription, privacy: .public)")
+                    }
+                }
+                next = current.userInfo[NSUnderlyingErrorKey] as? NSError
+            }
         }
     }
     #endif

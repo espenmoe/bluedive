@@ -22,25 +22,29 @@ final class DivePhoto {
     /// `setThumbnail(_:)`.
     @Relationship(deleteRule: .cascade, inverse: \DivePhotoThumbnail.photo)
     var thumbnail: DivePhotoThumbnail?
-    /// SHA-256 of the original bytes, used to detect a photo imported twice.
+    /// SHA-256 of the original bytes, used to detect a photo imported twice (any dive).
     var contentHash: Data?
     var originalFilename: String?
-    /// Size of the original in bytes and its displayed pixel size, read at import. Not shown
-    /// yet; kept for the planned photo export (XML backup), which records them.
-    var fileSize: Int = 0
+    /// Displayed pixel size of the original, read at import (compared when a re-imported file
+    /// may replace it).
     var pixelWidth: Int = 0
     var pixelHeight: Int = 0
 
     /// EXIF `DateTimeOriginal` (or `DateTimeDigitized`) read as wall-clock time and stored with
     /// the same convention as `Dive.timestamp` (`WallClock.storedDate`). Raw: never adjusted.
     var captureDate: Date?
+    /// EXIF `SubSecTimeOriginal` (or `SubSecTimeDigitized`), as written ("37"). Tells two shots
+    /// taken in the same second apart when a re-imported file is matched to a stored photo.
+    var captureSubsecond: String?
+    /// When the file was last edited or exported: the latest of XMP `MetadataDate`, XMP
+    /// `ModifyDate` and TIFF `DateTime`, read as wall-clock time (`WallClock.storedDate`, as
+    /// `captureDate`). Decides whether a re-imported version is newer than the stored one.
+    var metadataDate: Date?
+    /// 0 = `captureSubsecond` and `metadataDate` not read yet (a photo imported before they
+    /// existed; read from its original when a re-import needs them); 1 = read.
+    var identityVersion: Int = 0
     /// Camera-clock correction (seconds) the user applied at import to match the dive computer.
     var clockAdjustmentSeconds: Double = 0
-    /// Position on the dive profile in seconds from the dive start, as computed at import; nil
-    /// = not on the profile. Displays recalculate it from the capture time (`profileOffset(in:)`)
-    /// so it follows later edits of the dive; the stored value is used only for a photo placed
-    /// without a capture time (e.g. MacDive's profile events, in the planned migration).
-    var profileOffsetSeconds: Double?
 
     /// IPTC Keywords (XMP `dc:subject`).
     var iptcKeywords: [String]?
@@ -57,8 +61,9 @@ final class DivePhoto {
     @Relationship(deleteRule: .nullify, inverse: \Species.photos)
     var species: [Species]? = []
 
-    /// The import's duplicate check (`PhotoImporter.existingHashes`) looks photos up by dive.
-    #Index<DivePhoto>([\.diveID])
+    /// Lookups of the import: photos of a dive (`existingHashes`), the same file in any dive
+    /// (`contentHash`), photos taken at the same time (`captureDate`). Local indexes only.
+    #Index<DivePhoto>([\.diveID], [\.contentHash], [\.captureDate])
 
     init() {}
 
@@ -114,10 +119,9 @@ extension DivePhoto {
     /// Position on `dive`'s profile, in seconds from the dive start; nil = not on the profile.
     /// Calculated from the capture time, the clock correction and the dive's current start
     /// time and duration, so it follows later edits of the dive (a corrected start time, a
-    /// downloaded profile). `profileOffsetSeconds` (the value at import) is used only for a
-    /// photo without a capture time.
+    /// downloaded profile). A photo without a capture time is not on the profile.
     func profileOffset(in dive: Dive) -> Double? {
-        guard let captureDate else { return profileOffsetSeconds }
+        guard let captureDate else { return nil }
         return PhotoTiming.profileOffset(capture: WallClock.components(ofStored: captureDate),
                                          clockAdjustment: clockAdjustmentSeconds,
                                          diveStart: dive.timestamp,

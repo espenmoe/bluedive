@@ -1341,13 +1341,8 @@ extension ContentView {
 
         // --- Photos: moved to the merged dive before the later dive is deleted (its delete
         // would take its photo records, and their originals, with it). Their profile positions
-        // follow from their capture times on the merged timeline (DivePhoto.profileOffset); a
-        // stored position (used only for a photo without a capture time) moves with the later
-        // dive's samples, by the same offset.
+        // follow from their capture times on the merged timeline (DivePhoto.profileOffset).
         for photo in later.photos ?? [] {
-            if let offset = photo.profileOffsetSeconds {
-                photo.profileOffsetSeconds = offset + timeOffset * 60
-            }
             photo.attach(to: earlier)
         }
         if let laterLegacy = later.photosData, !laterLegacy.isEmpty {

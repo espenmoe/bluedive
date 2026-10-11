@@ -479,11 +479,12 @@ extension DiveDetailView {
         }
     }
 
-    /// Identity of a tile's image: the entry, and whether its thumbnail has arrived (read from
-    /// the link only), so a thumbnail synced after its photo is decoded when it lands.
+    /// Identity of a tile's image: the entry, whether its thumbnail has arrived (read from the
+    /// link only), so a thumbnail synced after its photo is decoded when it lands, and the
+    /// file's hash, so a photo replaced by a newer version (a re-import) is decoded again.
     func stripKey(for entry: DivePhotoEntry) -> String {
         switch entry.source {
-        case .photo(let photo): return "\(entry.id)|\(photo.thumbnail != nil)"
+        case .photo(let photo): return "\(entry.id)|\(photo.thumbnail != nil)|\(photo.contentHash?.hashValue ?? 0)"
         case .legacy: return entry.id
         }
     }
@@ -539,6 +540,12 @@ extension DiveDetailView {
                     .foregroundStyle(.pink)
                 Spacer()
                 if isImportingPhotosForThisDive {
+                    if photoImportWaiting {
+                        Text("Waiting for another photo task to finish…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     ProgressView()
                         .controlSize(.small)
                         .accessibilityLabel(Text("Importing Photos"))
@@ -733,14 +740,46 @@ extension DiveDetailView {
             Button("OK", role: .cancel) { }
         } message: { result in
             Text(verbatim: ([
-                String(format: NSLocalizedString("Imported: %@", bundle: .forAppLanguage(), value: "Imported: %@", comment: "Photo import summary line: photos added"), Double(result.imported).localizedString(decimals: 0)),
-                String(format: NSLocalizedString("Already attached to this dive: %@", bundle: .forAppLanguage(), value: "Already attached to this dive: %@", comment: "Photo import summary line: photos skipped because the same image is already attached to the dive"), Double(result.duplicates).localizedString(decimals: 0)),
+                String(format: NSLocalizedString("Imported: %@", bundle: .forAppLanguage(), value: "Imported: %@", comment: "Photo import summary line: photos added"), Double(result.imported).localizedString(decimals: 0))
+            ] + (result.updated > 0 ? [
+                String(format: NSLocalizedString("Updated: %@", bundle: .forAppLanguage(), value: "Updated: %@", comment: "Photo import summary line: stored photos replaced by a newer version of the same shot"), Double(result.updated).localizedString(decimals: 0))
+            ] : []) + [
+                String(format: NSLocalizedString("Already in BlueDive: %@", bundle: .forAppLanguage(), value: "Already in BlueDive: %@", comment: "Photo import summary line: files skipped because the same photo is already in BlueDive"), Double(result.duplicates).localizedString(decimals: 0))
+            ] + (result.olderSkipped > 0 ? [
+                String(format: NSLocalizedString("Older versions: %@", bundle: .forAppLanguage(), value: "Older versions: %@", comment: "Photo import summary line (short, to fit a macOS alert): files skipped because BlueDive already has a newer version of the same shot"), Double(result.olderSkipped).localizedString(decimals: 0))
+            ] : []) + (result.skippedByUser > 0 ? [
+                String(format: NSLocalizedString("Skipped: %@", bundle: .forAppLanguage(), value: "Skipped: %@", comment: "Photo import summary line: files the user chose to skip"), Double(result.skippedByUser).localizedString(decimals: 0))
+            ] : []) + [
                 String(format: NSLocalizedString("Could not be read: %@", bundle: .forAppLanguage(), value: "Could not be read: %@", comment: "Photo import summary line: files that are not readable images"), Double(result.unreadable).localizedString(decimals: 0))
             ] + (result.failedToSave > 0 ? [
                 String(format: NSLocalizedString("Could not be saved: %@", bundle: .forAppLanguage(), value: "Could not be saved: %@", comment: "Photo import summary line: photos lost because saving to the database failed"), Double(result.failedToSave).localizedString(decimals: 0))
             ] : []) + (result.legacyNotTrimmed ? [
                 NSLocalizedString("The converted photos could not be removed from the previous format. Convert again to finish.", bundle: .forAppLanguage(), value: "The converted photos could not be removed from the previous format. Convert again to finish.", comment: "Photo conversion summary line: the records were saved but the old copies are still there")
             ] : [])).joined(separator: "\n"))
+        }
+        .sheet(isPresented: Binding(
+            get: { !reimportQuestions.isEmpty },
+            set: { shown in
+                // Closed without an answer (not by its buttons): every file is left out, so
+                // the import finishes and the dive is not left busy.
+                if !shown, reimportFirstPass != nil {
+                    startAnsweringReimportQuestions(reimportQuestions.map { ($0, .skip) })
+                }
+                if !shown { reimportQuestions = [] }
+            }
+        ), onDismiss: {
+            // The summary or species review, once the sheet has fully closed: presenting one
+            // while it is still closing can be dropped.
+            photoImportSession.decisionSheetOpen = false
+            if let pending = photoImportSession.pendingSummary {
+                photoImportSession.pendingSummary = nil
+                finishPhotoImport(pending.result, diveID: pending.diveID)
+            }
+        }) {
+            PhotoReimportSheet(questions: reimportQuestions) { answers in
+                startAnsweringReimportQuestions(answers)
+            }
+            .standardSheetPresentation()
         }
         .sheet(isPresented: Binding(
             get: { !speciesProposals.isEmpty },
@@ -752,7 +791,7 @@ extension DiveDetailView {
                 photoImportResult = pending
             }
         }) {
-            SpeciesPhotoReviewSheet(proposals: speciesProposals)
+            SpeciesPhotoReviewSheet(proposals: speciesProposals, afterImport: true)
                 .standardSheetPresentation()
         }
         .alert("Convert Photos", isPresented: $showConvertLegacyPhotosAlert) {
@@ -800,24 +839,78 @@ extension DiveDetailView {
     }
 
     /// Imports into the dive shown when the import started, even if the user moves to
-    /// another dive meanwhile.
+    /// another dive meanwhile. Files that may already be in BlueDive are asked about first.
     @MainActor
     func runPhotoImport(_ sources: [PhotoImporter.Source]) async {
         guard !sources.isEmpty, importingPhotosDiveID == nil else { return }
         let diveID = dive.persistentModelID
+        let container = modelContext.container
+        // Taken now, while the view is on screen: the import may end after it is gone.
+        let session = photoImportSession
         importingPhotosDiveID = diveID
-        let result = await PhotoImporter.importPhotos(sources, toDiveWith: diveID, container: modelContext.container)
-        importingPhotosDiveID = nil
+        let result = await PhotoImporter.importPhotos(sources, toDiveWith: diveID, container: container,
+                                                      onWaiting: { photoImportWaiting = $0 })
         commitPhotoChange(diveID: diveID)
+        guard result.questions.isEmpty else {
+            guard session.isShown else {
+                // The dive screen was left during the import: nobody can answer, so the files
+                // get the default answer, Keep both — added as new photos, nothing replaced
+                // or lost.
+                _ = await PhotoImporter.answer(result.questions.map { ($0, .keepBoth) }, container: container)
+                commitPhotoChange(diveID: diveID)
+                importingPhotosDiveID = nil
+                return
+            }
+            // Kept busy until the questions are answered (Keep both and Update still import).
+            session.decisionSheetOpen = true
+            reimportFirstPass = result
+            reimportDiveID = diveID
+            reimportQuestions = result.questions
+            return
+        }
+        importingPhotosDiveID = nil
+        finishPhotoImport(result, diveID: diveID)
+    }
+
+    /// Takes the pending questions' state at once (so a second call, e.g. the sheet's
+    /// dismissal after its button, does nothing), then carries out the answers and reports the
+    /// whole import.
+    @MainActor
+    func startAnsweringReimportQuestions(_ answers: [(question: PhotoImporter.ReimportQuestion, choice: PhotoImporter.ReimportChoice)]) {
+        guard let firstPass = reimportFirstPass, let diveID = reimportDiveID else { return }
+        reimportFirstPass = nil
+        reimportDiveID = nil
+        let session = photoImportSession
+        Task {
+            let result = await PhotoImporter.answer(answers, container: modelContext.container,
+                                                    onWaiting: { photoImportWaiting = $0 })
+            importingPhotosDiveID = nil
+            var summary = firstPass
+            summary.add(result)
+            commitPhotoChange(diveID: diveID)
+            if session.decisionSheetOpen {
+                // Shown by the sheet's onDismiss.
+                session.pendingSummary = (summary, diveID)
+            } else {
+                finishPhotoImport(summary, diveID: diveID)
+            }
+        }
+    }
+
+    /// Offers the species named in the imported and updated photos, and reports problems.
+    @MainActor
+    func finishPhotoImport(_ result: PhotoImporter.Result, diveID: PersistentIdentifier) {
         // Species named in the photos' captions or keywords: offered for confirmation.
         let catalogue = (try? modelContext.fetch(FetchDescriptor<Species>())) ?? []
         let proposals = SpeciesPhotoMatcher.proposals(
-            for: SpeciesPhotoMatcher.photos(withIDs: result.importedPhotoIDs, in: modelContext),
+            for: SpeciesPhotoMatcher.photos(withIDs: result.importedPhotoIDs + result.updatedPhotoIDs, in: modelContext),
             catalogue: catalogue)
         // Reported only while the same dive is shown.
         guard dive.persistentModelID == diveID else { return }
+        let handled = result.imported + result.duplicates + result.updated + result.olderSkipped + result.skippedByUser
         let hasProblems = result.duplicates > 0 || result.unreadable > 0 || result.failedToSave > 0
-        if result.imported == 0 && result.duplicates == 0 {
+            || result.updated > 0 || result.olderSkipped > 0 || result.skippedByUser > 0
+        if handled == 0 {
             showFileImportError = true
         } else if !proposals.isEmpty {
             speciesProposals = proposals

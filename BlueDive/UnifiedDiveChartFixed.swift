@@ -1330,8 +1330,8 @@ struct UnifiedDiveChartOptimized: View {
     }
 
     /// Changes when a marker must be rebuilt: photos added, removed or moved (including by an
-    /// edit of the dive's start time or profile), units, setting. Reads no image data: a
-    /// photo's thumbnail never changes after import.
+    /// edit of the dive's start time or profile), units, setting, or replaced by a newer
+    /// version (a re-import changes the file's hash). Reads no image data.
     private var photoMarkerKey: Int {
         var hasher = Hasher()
         hasher.combine(dive.id)
@@ -1345,6 +1345,7 @@ struct UnifiedDiveChartOptimized: View {
             // A thumbnail arriving from iCloud after its photo rebuilds the marker (reads the
             // link only, not the image).
             hasher.combine(photo.thumbnail != nil)
+            hasher.combine(photo.contentHash)
         }
         return hasher.finalize()
     }

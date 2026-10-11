@@ -107,6 +107,15 @@ struct DiveDetailView: View {
     @State var pendingPhotoImportResult: PhotoImporter.Result?
     /// Dive whose photos are being imported (the import keeps running if the user moves to another dive).
     @State var importingPhotosDiveID: PersistentIdentifier?
+    /// Another photo task holds the dive: the import waits for it.
+    @State var photoImportWaiting = false
+    /// Files the import could not decide on (they may already be in BlueDive), with the
+    /// first pass's counts and the dive it imported into, waiting for the user's choices.
+    @State var reimportQuestions: [PhotoImporter.ReimportQuestion] = []
+    @State var reimportFirstPass: PhotoImporter.Result?
+    @State var reimportDiveID: PersistentIdentifier?
+    /// Held by a photo import's tasks, which may finish after this view is gone.
+    @State var photoImportSession = PhotoImportSession()
     @State var showConvertLegacyPhotosAlert = false
     /// Species found in the IPTC text of photos just imported, waiting for confirmation.
     @State var speciesProposals: [SpeciesPhotoProposal] = []
@@ -501,9 +510,11 @@ struct DiveDetailView: View {
             UIAccessibility.post(notification: .screenChanged, argument: announcement)
             #endif
         }
+        .onAppear { photoImportSession.isShown = true }
         .onDisappear {
             // Invalidate any pending async reset so it can't fire after the view leaves.
             unlockToken = UUID()
+            photoImportSession.isShown = false
         }
         #if os(iOS)
         .accessibilityAction(named: Text("Previous dive")) {
@@ -733,4 +744,17 @@ private struct NavTitleIfNotPreview: ViewModifier {
                 .navigationBarTitleDisplayMode(.inline)
         }
     }
+}
+
+/// State of a dive's photo import that must outlive `DiveDetailView`: the import's tasks hold
+/// it, and can still tell after an `await` whether the screen is shown and whether the
+/// re-import decision sheet has closed. Not observed by any view.
+@MainActor
+final class PhotoImportSession {
+    /// The dive screen is on screen.
+    var isShown = true
+    /// The re-import decision sheet is presented (until its dismissal has finished).
+    var decisionSheetOpen = false
+    /// The finished import's summary, waiting for the decision sheet to close.
+    var pendingSummary: (result: PhotoImporter.Result, diveID: PersistentIdentifier)?
 }

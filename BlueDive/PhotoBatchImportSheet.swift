@@ -27,6 +27,9 @@ struct PhotoBatchImportSheet: View {
         case scanning(done: Int, total: Int)
         case review
         case importing(done: Int, total: Int)
+        /// Files that may already be in BlueDive wait for the user's choice (the counts of the
+        /// first pass are kept for the summary).
+        case deciding(PhotoImporter.Result)
         case finished(PhotoImporter.Result)
     }
 
@@ -45,6 +48,13 @@ struct PhotoBatchImportSheet: View {
     /// Photos not imported because their dive was deleted (here or on another device) before
     /// its turn came.
     @State private var photosOfDeletedDives = 0
+    /// Files the import could not decide on, and the user's answers.
+    @State private var reimportQuestions: [PhotoImporter.ReimportQuestion] = []
+    @State private var reimportAnswers: [UUID: PhotoImporter.ReimportChoice] = [:]
+    /// Another photo task (a conversion, another import) holds a dive the import needs.
+    @State private var waitingForOtherTask = false
+    /// Dives the answers wrote to ("Keep both"), refreshed in the dive list at the end.
+    @State private var touchedDives: Set<PersistentIdentifier> = []
 
     private var clockAdjustment: Double { Double(clockHours * 3600 + clockMinutes * 60) }
 
@@ -53,9 +63,11 @@ struct PhotoBatchImportSheet: View {
     private var unmatchedRows: [Row] { rows.filter { $0.candidates.isEmpty } }
     private var assignedCount: Int { rows.filter { $0.chosen != nil }.count }
 
+    /// Swipe-to-dismiss is off meanwhile: the picked folders must stay accessible (a decision
+    /// still reads its file).
     private var isWorking: Bool {
         switch phase {
-        case .scanning, .importing: return true
+        case .scanning, .importing, .deciding: return true
         default: return false
         }
     }
@@ -71,7 +83,13 @@ struct PhotoBatchImportSheet: View {
                 case .review:
                     reviewSections
                 case .importing(let done, let total):
-                    progressSection(title: Text("Importing photos…"), done: done, total: total)
+                    if waitingForOtherTask {
+                        progressSection(title: Text("Waiting for another photo task to finish…"), done: done, total: total)
+                    } else {
+                        progressSection(title: Text("Importing photos…"), done: done, total: total)
+                    }
+                case .deciding:
+                    PhotoReimportSection(questions: reimportQuestions, answers: $reimportAnswers)
                 case .finished(let result):
                     finishedSection(result)
                 }
@@ -92,6 +110,15 @@ struct PhotoBatchImportSheet: View {
                                 .confirmationActionForeground(.pink)
                         }
                         .disabled(assignedCount == 0)
+                    }
+                } else if case .deciding(let firstPass) = phase {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            answerQuestions(after: firstPass)
+                        } label: {
+                            Text("Continue")
+                                .confirmationActionForeground(.pink)
+                        }
                     }
                 } else if case .finished = phase {
                     ToolbarItem(placement: .confirmationAction) {
@@ -230,7 +257,17 @@ struct PhotoBatchImportSheet: View {
     private func finishedSection(_ result: PhotoImporter.Result) -> some View {
         Section {
             summaryRow(Text("Imported"), result.imported, icon: "checkmark.circle.fill", color: .green)
-            summaryRow(Text("Already attached to their dive"), result.duplicates, icon: "equal.circle", color: .secondary)
+            if result.updated > 0 {
+                // Own key: the label agrees with "photos" (fr-CA "Mises à jour"), unlike the shared "Updated".
+                summaryRow(Text(verbatim: NSLocalizedString("Updated (photos)", bundle: .forAppLanguage(), value: "Updated", comment: "Photo import summary row: stored photos replaced by a newer version of the same shot")), result.updated, icon: "arrow.triangle.2.circlepath", color: .blue)
+            }
+            summaryRow(Text("Already in BlueDive"), result.duplicates, icon: "equal.circle", color: .secondary)
+            if result.olderSkipped > 0 {
+                summaryRow(Text("Older than the copy in BlueDive"), result.olderSkipped, icon: "clock.arrow.circlepath", color: .secondary)
+            }
+            if result.skippedByUser > 0 {
+                summaryRow(Text("Skipped"), result.skippedByUser, icon: "forward", color: .secondary)
+            }
             summaryRow(Text("Could not be read"), result.unreadable, icon: "exclamationmark.triangle", color: .orange)
             if result.failedToSave > 0 {
                 summaryRow(Text("Could not be saved"), result.failedToSave, icon: "xmark.octagon", color: .red)
@@ -447,6 +484,7 @@ struct PhotoBatchImportSheet: View {
         work = Task {
             phase = .importing(done: 0, total: total)
             var summary = PhotoImporter.Result()
+            var questions: [PhotoImporter.ReimportQuestion] = []
             var done = 0
             var diveGone = 0
             for (diveID, items) in groups {
@@ -460,31 +498,69 @@ struct PhotoBatchImportSheet: View {
                 let base = done
                 let result = await PhotoImporter.importPhotos(
                     items.map { .file($0.file.url) }, toDiveWith: divePID,
-                    container: container, clockAdjustment: adjustment
-                ) { processed, _ in
-                    phase = .importing(done: base + processed, total: total)
-                }
+                    container: container, clockAdjustment: adjustment,
+                    onWaiting: { waitingForOtherTask = $0 },
+                    progress: { processed, _ in
+                        phase = .importing(done: base + processed, total: total)
+                    })
                 done += items.count
-                summary.imported += result.imported
-                summary.duplicates += result.duplicates
-                summary.unreadable += result.unreadable
-                summary.failedToSave += result.failedToSave
-                summary.importedPhotoIDs += result.importedPhotoIDs
-                // Fetched again: the dive may have been deleted (here or remotely) meanwhile.
+                summary.add(result)
+                questions += result.questions
+                // Refreshed now (not at the end): the sheet may be closed at the decision step.
                 if let live = PhotoImporter.fetchDive(divePID, in: modelContext) {
                     store.commit(live, affects: .rowBadges)
                 }
             }
-            let catalogue = (try? modelContext.fetch(FetchDescriptor<Species>())) ?? []
-            speciesProposals = SpeciesPhotoMatcher.proposals(
-                for: SpeciesPhotoMatcher.photos(withIDs: summary.importedPhotoIDs, in: modelContext),
-                catalogue: catalogue)
-            // After a batch import the proposals start switched on, new species included when
-            // their name is clearly scientific; a weaker reading starts off.
-            acceptedProposals = defaultAcceptedProposals(speciesProposals, includeConfidentNewSpecies: true)
             photosOfDeletedDives = diveGone
-            phase = .finished(summary)
+            guard questions.isEmpty || Task.isCancelled else {
+                reimportQuestions = questions
+                reimportAnswers = [:]
+                phase = .deciding(summary)
+                return
+            }
+            finish(summary)
         }
+    }
+
+    /// Carries out the answers to the import's questions (default: keep both), then shows the
+    /// summary.
+    private func answerQuestions(after firstPass: PhotoImporter.Result) {
+        let answers = reimportQuestions.map { ($0, reimportAnswers[$0.id] ?? .keepBoth) }
+        let adjustment = clockAdjustment
+        let container = modelContext.container
+        work?.cancel()
+        work = Task {
+            phase = .importing(done: 0, total: answers.count)
+            let result = await PhotoImporter.answer(answers, container: container, clockAdjustment: adjustment,
+                                                    onWaiting: { waitingForOtherTask = $0 },
+                                                    progress: { done, total in phase = .importing(done: done, total: total) })
+            touchedDives.formUnion(answers.map(\.0.diveID))
+            photosOfDeletedDives += result.diveDeleted
+            var summary = firstPass
+            summary.add(result)
+            reimportQuestions = []
+            finish(summary)
+        }
+    }
+
+    /// Refreshes the dives written to, offers the species named in the imported and updated
+    /// photos, and shows the summary.
+    private func finish(_ summary: PhotoImporter.Result) {
+        for divePID in touchedDives {
+            // Fetched again: the dive may have been deleted (here or remotely) meanwhile.
+            if let live = PhotoImporter.fetchDive(divePID, in: modelContext) {
+                store.commit(live, affects: .rowBadges)
+            }
+        }
+        touchedDives = []
+        let catalogue = (try? modelContext.fetch(FetchDescriptor<Species>())) ?? []
+        speciesProposals = SpeciesPhotoMatcher.proposals(
+            for: SpeciesPhotoMatcher.photos(withIDs: summary.importedPhotoIDs + summary.updatedPhotoIDs, in: modelContext),
+            catalogue: catalogue)
+        // After a batch import the proposals start switched on, new species included when
+        // their name is clearly scientific; a weaker reading starts off.
+        acceptedProposals = defaultAcceptedProposals(speciesProposals, includeConfidentNewSpecies: true)
+        phase = .finished(summary)
     }
 
     private func close() {

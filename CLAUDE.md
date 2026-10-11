@@ -316,7 +316,7 @@ SwiftData stores a small `@Attribute(.externalStorage)` blob (under about 128 KB
 
 ## CloudKit Schema (Before a Production Deploy)
 
-The CloudKit development environment creates a field only when a record arrives with a value for it, so data entered in the app cannot complete the schema: fields the app never fills (e.g. `Species.sourceIdentifier`) and the `CD_<attribute>_ckAsset` field Core Data adds for every String, Binary Data and Transformable attribute (used when a value does not fit in the record's 1 MB limit, e.g. a user-picked species image) would be missing in production, and records carrying such a value would fail to sync. A production schema is additive only: once deployed, record types and fields can never be removed or changed.
+The CloudKit development environment creates a field only when a record arrives with a value for it, so data entered in the app cannot complete the schema: fields no record has filled yet (e.g. a field reserved for a feature still to come, or one only some imports write) and the `CD_<attribute>_ckAsset` field Core Data adds for every String, Binary Data and Transformable attribute (used when a value does not fit in the record's 1 MB limit, e.g. a user-picked species image) would be missing in production, and records carrying such a value would fail to sync. A production schema is additive only: once deployed, record types and fields can never be removed or changed.
 
 After any model change (a new model, attribute or relationship), before deploying the schema to production:
 

@@ -25,9 +25,6 @@ final class Species {
     var notes: String?
     /// Other names this species is known by (e.g. spellings merged from sightings).
     var altNames: [String]?
-    /// Identifier of the record this species was imported from (e.g. "macdive:<ZUUID>"),
-    /// so a re-import updates instead of duplicating.
-    var sourceIdentifier: String?
 
     /// The featured image, in its own record (DivePhotoBlobs.swift) so the species lists and
     /// name lookups, which fetch every species, never load it. Set with `setFeaturedImage`.

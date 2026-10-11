@@ -70,18 +70,20 @@ enum WeatherBatchFetcher {
         var stop: Stop?
         var done = 0            // dives processed, for the debug log of an early stop
 
-        /// Saves pending changes; on failure discards them (this context only).
-        func flush() {
-            guard unsaved > 0 else { return }
+        /// Saves pending changes; on failure discards them (this context only) and returns false.
+        @discardableResult
+        func flush() -> Bool {
+            guard unsaved > 0 else { return true }
+            defer { unsaved = 0 }
             do {
                 try context.save()
                 filled += unsaved
+                return true
             } catch {
                 logger.error("Weather save failed: \(error.localizedDescription)")
                 context.rollback()
-                saveFailed = true
+                return false
             }
-            unsaved = 0
         }
         /// The dive with this ID, or nil if it no longer exists (deleted meanwhile).
         func dive(_ id: PersistentIdentifier) -> Dive? {
@@ -131,8 +133,7 @@ enum WeatherBatchFetcher {
                 logger.info("Weather fetch: dive deleted before its request — skipped")
             }
             done = index + 1
-            if unsaved >= 10 { flush() }
-            if saveFailed { break loop }
+            if unsaved >= 10, !flush() { saveFailed = true; break loop }
             progress(.running(done: done, total: ids.count))
             // A short pause between requests, to stay well within Open-Meteo's limits.
             if index + 1 < ids.count, (try? await Task.sleep(for: .milliseconds(150))) == nil {
@@ -140,7 +141,7 @@ enum WeatherBatchFetcher {
             }
         }
         // Also on every early stop, including a cancel.
-        flush()
+        if !flush() { saveFailed = true }
         if saveFailed {
             logger.info("Weather fetch ended after \(done) of \(ids.count) dives: save failed (saved \(filled))")
             return .saveFailed(filled: filled)

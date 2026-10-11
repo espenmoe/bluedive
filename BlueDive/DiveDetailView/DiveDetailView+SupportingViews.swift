@@ -1618,10 +1618,11 @@ struct PhotoPreviewSheet: View {
         return photoData(index)
     }
 
-    /// Page identity: the photo, and whether its original is here, so the page reloads (from
-    /// the thumbnail to the original) when the original arrives from iCloud.
+    /// Page identity: the photo, whether its original is here, so the page reloads (from the
+    /// thumbnail to the original) when the original arrives from iCloud, and the file's hash,
+    /// so a photo replaced by a newer version (a re-import) reloads too.
     private func pageID(_ index: Int) -> String {
-        "\(photoIDs[index])|\(hasOriginal(index))"
+        "\(photoIDs[index])|\(hasOriginal(index))|\(photoRecord(index)?.contentHash?.hashValue ?? 0)"
     }
 
     var body: some View {

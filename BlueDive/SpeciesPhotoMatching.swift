@@ -485,7 +485,7 @@ enum SpeciesPhotoMatcher {
 
 /// Initial selection: links to catalogue species start on. A proposal that would create a new
 /// species starts off, so a misread caption never creates one without a deliberate choice —
-/// except, with `includeConfidentNewSpecies` (the batch import), a name that is clearly
+/// except, with `includeConfidentNewSpecies` (right after a photo import), a name that is clearly
 /// scientific (written with parentheses, or confirmed by its genus keyword).
 @MainActor
 func defaultAcceptedProposals(_ proposals: [SpeciesPhotoProposal], includeConfidentNewSpecies: Bool = false) -> Set<String> {
@@ -587,10 +587,14 @@ struct SpeciesPhotoReviewSheet: View {
     @Environment(DiveStore.self) private var store
     @State private var accepted: Set<String>
     @State private var recordSightings = true
+    /// Shown right after a photo import: new species with a clearly scientific name start
+    /// switched on, as in the batch import. Off (Find Species): every new species starts off.
+    private let afterImport: Bool
 
-    init(proposals: [SpeciesPhotoProposal]) {
+    init(proposals: [SpeciesPhotoProposal], afterImport: Bool = false) {
         self.proposals = proposals
-        _accepted = State(initialValue: defaultAcceptedProposals(proposals))
+        self.afterImport = afterImport
+        _accepted = State(initialValue: defaultAcceptedProposals(proposals, includeConfidentNewSpecies: afterImport))
     }
 
     var body: some View {
@@ -598,7 +602,11 @@ struct SpeciesPhotoReviewSheet: View {
             Form {
                 SpeciesProposalSections(proposals: proposals, accepted: $accepted,
                                         recordSightings: $recordSightings) {
-                    Text("Names found in the photos’ captions and keywords. Only the links you switch on are made; new species start switched off. The photos themselves are not changed.")
+                    if afterImport {
+                        Text("Names found in the photos’ captions and keywords. Only the links you switch on are made; a new species starts switched on when its scientific name is clear. The photos themselves are not changed.")
+                    } else {
+                        Text("Names found in the photos’ captions and keywords. Only the links you switch on are made; new species start switched off. The photos themselves are not changed.")
+                    }
                 }
             }
             .groupedFormStyleOnMac()

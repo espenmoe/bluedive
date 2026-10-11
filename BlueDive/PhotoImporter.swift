@@ -11,13 +11,17 @@ import os.log
 
 /// Metadata read from one image file, plus the data derived from it at import.
 nonisolated struct PhotoFileInfo: Sendable {
-    var fileSize: Int = 0
     var pixelWidth: Int = 0
     var pixelHeight: Int = 0
     /// Wall-clock capture time from EXIF `DateTimeOriginal` (or `DateTimeDigitized`), whole
     /// seconds. The time-zone offset (`OffsetTimeOriginal`) is ignored, as MacDive does: the
     /// dive computer's start time is a wall-clock time too.
     var captureComponents: DateComponents?
+    /// EXIF sub-seconds of the capture time, as written ("37"); nil when absent.
+    var captureSubsecond: String?
+    /// Wall-clock time of the last edit or export: the latest of XMP `MetadataDate`, XMP
+    /// `ModifyDate` and TIFF `DateTime` (offsets ignored, like the capture time).
+    var metadataComponents: DateComponents?
     var keywords: [String]?
     var caption: String?
     var title: String?
@@ -39,7 +43,6 @@ nonisolated enum PhotoMetadataReader {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0 else { return nil }
         var info = PhotoFileInfo()
-        info.fileSize = data.count
         info.contentHash = Data(SHA256.hash(data: data))
 
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) as? [CFString: Any] ?? [:]
@@ -51,6 +54,8 @@ nonisolated enum PhotoMetadataReader {
         }
 
         info.captureComponents = captureComponents(from: properties)
+        let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
+        (info.captureSubsecond, info.metadataComponents) = identity(from: properties, metadata: metadata)
 
         readIPTC(source: source, properties: properties, into: &info)
 
@@ -67,6 +72,45 @@ nonisolated enum PhotoMetadataReader {
         // falls back to DateTimeDigitized.
         return (exif[kCGImagePropertyExifDateTimeOriginal] as? String).flatMap(exifDateComponents)
             ?? (exif[kCGImagePropertyExifDateTimeDigitized] as? String).flatMap(exifDateComponents)
+    }
+
+    /// Sub-seconds of the capture time and the last edit or export time, which tell a
+    /// re-imported version of a stored photo apart from another shot (`PhotoReimportResolver`).
+    /// The sub-seconds go with the field the capture time came from (`DateTimeOriginal`, else
+    /// `DateTimeDigitized`). Lightroom changes `MetadataDate` only when metadata is edited and
+    /// `ModifyDate` / TIFF `DateTime` on every export, so the latest of the three is kept.
+    static func identity(from properties: [CFString: Any],
+                         metadata: CGImageMetadata?) -> (subsecond: String?, edited: DateComponents?) {
+        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+        let fromOriginal = (exif[kCGImagePropertyExifDateTimeOriginal] as? String).flatMap(exifDateComponents) != nil
+        let subsecondKey = fromOriginal ? kCGImagePropertyExifSubsecTimeOriginal : kCGImagePropertyExifSubsecTimeDigitized
+        let subsecond = (exif[subsecondKey] as? String)?.trimmingCharacters(in: .whitespaces).nilIfBlank
+
+        let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+        let texts: [String?] = [
+            metadata.flatMap { CGImageMetadataCopyStringValueWithPath($0, nil, "xmp:MetadataDate" as CFString) as String? },
+            metadata.flatMap { CGImageMetadataCopyStringValueWithPath($0, nil, "xmp:ModifyDate" as CFString) as String? },
+            tiff[kCGImagePropertyTIFFDateTime] as? String
+        ]
+        let edited = texts.compactMap { $0.flatMap(exifDateComponents) }
+            .max { (utcCalendar.date(from: $0) ?? .distantPast) < (utcCalendar.date(from: $1) ?? .distantPast) }
+        return (subsecond, edited)
+    }
+
+    /// Gregorian calendar in UTC, to order wall-clock components (`WallClock` is main-actor).
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }()
+
+    /// The identity fields of stored image bytes (no thumbnail): for a photo imported before
+    /// they were recorded, read from its original when a re-import is compared with it.
+    static func readIdentity(_ data: Data) -> (subsecond: String?, edited: DateComponents?)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) as? [CFString: Any] ?? [:]
+        return identity(from: properties, metadata: CGImageSourceCopyMetadataAtIndex(source, 0, nil))
     }
 
     /// A JPEG thumbnail of the image, oriented as displayed (longest side ≤ `maxPixelSize`).
@@ -87,10 +131,18 @@ nonisolated enum PhotoMetadataReader {
         return jpegData(from: thumbnail, quality: quality)
     }
 
-    /// Wall-clock components of an EXIF date string ("yyyy:MM:dd HH:mm:ss"); subseconds and
-    /// any offset are not part of this field. Nil for the blank dates some cameras write.
+    /// Wall-clock components of an EXIF date string ("yyyy:MM:dd HH:mm:ss") or an XMP one
+    /// ("2026-08-22T11:22:41.37+02:00"); subseconds and any offset are ignored. Nil for the
+    /// blank dates some cameras write, and for a date without seconds.
     static func exifDateComponents(_ text: String) -> DateComponents? {
-        let parts = text.trimmingCharacters(in: .whitespaces)
+        var text = text.trimmingCharacters(in: .whitespaces)
+        // An XMP time-zone offset ("+02:00", "-05:00", "Z") is cut off first, so a date
+        // without seconds cannot take the offset's hours as its seconds.
+        if let timeStart = text.firstIndex(of: "T"),
+           let offset = text[timeStart...].firstIndex(where: { $0 == "+" || $0 == "-" || $0 == "Z" }) {
+            text = String(text[..<offset])
+        }
+        let parts = text
             .split(whereSeparator: { $0 == ":" || $0 == " " || $0 == "-" || $0 == "T" })
             .map(String.init)
         guard parts.count >= 6,
@@ -222,10 +274,16 @@ enum PhotoImporter {
     }
 
     /// Waits until no other run writes to the dive, then marks it busy. Returns false when the
-    /// waiting task is cancelled (the dive is then not marked).
-    private static func acquire(_ diveID: PersistentIdentifier) async -> Bool {
+    /// waiting task is cancelled (the dive is then not marked). `onWaiting(true)` is called
+    /// when the dive is busy, so the caller can say what it is waiting for, and
+    /// `onWaiting(false)` once it is free again.
+    private static func acquire(_ diveID: PersistentIdentifier, onWaiting: (Bool) -> Void = { _ in }) async -> Bool {
         let activity = PhotoImportActivity.shared
+        let waited = activity.busyDiveIDs.contains(diveID)
+        if waited { onWaiting(true) }
+        defer { if waited { onWaiting(false) } }
         while activity.busyDiveIDs.contains(diveID) {
+            if Task.isCancelled { return false }
             do {
                 try await Task.sleep(for: .milliseconds(200))
             } catch {
@@ -241,7 +299,7 @@ enum PhotoImporter {
     }
 
     /// One image to import.
-    enum Source {
+    enum Source: Equatable {
         case data(Data, filename: String?)
         /// A file URL (security-scoped access is started while reading).
         case file(URL)
@@ -249,10 +307,62 @@ enum PhotoImporter {
         case pickerItem(PhotosPickerItem)
     }
 
+    /// The user's answer for a file that may already be in BlueDive.
+    enum ReimportChoice: Hashable {
+        /// Replace this stored photo with the file.
+        case update(UUID)
+        /// Add the file as a new photo.
+        case keepBoth
+        /// Leave the file out.
+        case skip
+    }
+
+    /// A file the import could not decide on (`PhotoReimportResolver.Verdict.ask`): answered by
+    /// the user, then passed to `answer(_:container:clockAdjustment:onWaiting:)`.
+    struct ReimportQuestion: Identifiable, Equatable {
+        let id = UUID()
+        let source: Source
+        let filename: String?
+        /// Capture time (stored convention), for display.
+        let capture: Date?
+        /// The file's thumbnail.
+        let preview: Data?
+        let reason: PhotoReimportResolver.Reason
+        /// Stored photos it may replace.
+        let candidates: [UUID]
+        /// What the choices show about each candidate, read once when the question is made
+        /// (not in the view's body, where it would be fetched again on every redraw).
+        let candidateDetails: [Candidate]
+        /// The dive the file was being imported into.
+        let diveID: PersistentIdentifier
+    }
+
+    /// A stored photo a question may replace, as shown in its "Update" choice.
+    struct Candidate: Equatable {
+        let photoID: UUID
+        let filename: String?
+        /// The candidate is on another dive than the file's: its number and site are shown.
+        let onOtherDive: Bool
+        let diveNumber: Int?
+        let siteName: String?
+    }
+
     struct Result: Equatable {
         var imported = 0
-        /// Images already attached to the dive (same content), not added again.
+        /// Files already in BlueDive (the same file on the dive, or the same version of a
+        /// stored photo), not added again.
         var duplicates = 0
+        /// Stored photos replaced by a newer version of the same shot.
+        var updated = 0
+        var updatedPhotoIDs: [UUID] = []
+        /// Files older than the stored version of the same shot, not imported.
+        var olderSkipped = 0
+        /// Files the user chose to skip.
+        var skippedByUser = 0
+        /// Files waiting for the user's decision.
+        var questions: [ReimportQuestion] = []
+        /// Files whose dive was deleted before they could be added.
+        var diveDeleted = 0
         /// Files that could not be read as an image.
         var unreadable = 0
         /// Ids of the photos added.
@@ -263,21 +373,131 @@ enum PhotoImporter {
         /// legacy array: they show twice until the dive is converted again (which finds them
         /// already attached and removes them).
         var legacyNotTrimmed = false
+
+        /// Adds another run's counts (the questions are not merged: each run's are answered).
+        mutating func add(_ other: Result) {
+            imported += other.imported
+            duplicates += other.duplicates
+            updated += other.updated
+            updatedPhotoIDs += other.updatedPhotoIDs
+            olderSkipped += other.olderSkipped
+            skippedByUser += other.skippedByUser
+            diveDeleted += other.diveDeleted
+            unreadable += other.unreadable
+            importedPhotoIDs += other.importedPhotoIDs
+            failedToSave += other.failedToSave
+            legacyNotTrimmed = legacyNotTrimmed || other.legacyNotTrimmed
+        }
     }
 
-    /// Imports `sources` into the dive with `diveID`, skipping images already attached to
-    /// that dive (same content hash). `progress` receives (processed, total) after each file.
+    /// Imports `sources` into the dive with `diveID`. A file already in BlueDive is skipped, a
+    /// newer version of a stored photo replaces it, and a file BlueDive cannot decide on is
+    /// returned in `questions` (`PhotoReimportResolver`). `progress` receives (processed,
+    /// total) after each file; `onWaiting` is called when another photo task holds the dive.
     /// - Parameter clockAdjustment: camera-clock correction (seconds) added to each capture
     ///   time to place the photo on the dive profile; recorded on the photo.
     static func importPhotos(_ sources: [Source], toDiveWith diveID: PersistentIdentifier,
                              container: ModelContainer,
                              clockAdjustment: Double = 0,
+                             onWaiting: (Bool) -> Void = { _ in },
                              progress: (Int, Int) -> Void = { _, _ in }) async -> Result {
-        guard await acquire(diveID) else { return Result() }
+        guard await acquire(diveID, onWaiting: onWaiting) else { return Result() }
         defer { release(diveID) }
-        let result = await insert(sources, intoDiveWith: diveID, container: container,
+        let result = await insert(sources, intoDiveWith: diveID, container: container, mode: .importing,
                                   clockAdjustment: clockAdjustment, progress: progress)
-        logger.info("Photo import: \(result.imported) imported, \(result.duplicates) duplicates, \(result.unreadable) unreadable")
+        logger.info("Photo import: \(result.imported) imported, \(result.updated) updated, \(result.duplicates) duplicates, \(result.questions.count) to decide, \(result.unreadable) unreadable")
+        return result
+    }
+
+    /// Carries out the user's answers to an import's questions: "Keep both" files are added
+    /// to the dive they were imported into, "Update" replaces the chosen stored photo (under
+    /// its own dive's reservation, so no two dives are ever held at once), "Skip" leaves the
+    /// file out.
+    /// `progress` receives (answers carried out, total) as it goes.
+    static func answer(_ answers: [(question: ReimportQuestion, choice: ReimportChoice)],
+                       container: ModelContainer, clockAdjustment: Double = 0,
+                       onWaiting: (Bool) -> Void = { _ in },
+                       progress: (Int, Int) -> Void = { _, _ in }) async -> Result {
+        var result = Result()
+        let total = answers.count
+        var keepByDive: [PersistentIdentifier: [Source]] = [:]
+        var updates: [(UUID, Source)] = []
+        let lookup = makeContext(container)
+        for (question, choice) in answers {
+            switch choice {
+            case .skip: result.skippedByUser += 1
+            case .keepBoth: keepByDive[question.diveID, default: []].append(question.source)
+            case .update(let photoID):
+                if fetchPhoto(photoID, in: lookup)?.dive != nil {
+                    updates.append((photoID, question.source))
+                } else {
+                    // The stored photo (or its dive) was deleted since the question, e.g. on
+                    // another device: the file is added as a new photo, so it is not lost.
+                    keepByDive[question.diveID, default: []].append(question.source)
+                }
+            }
+        }
+        var done = result.skippedByUser
+        progress(done, total)
+        for (diveID, sources) in keepByDive {
+            if Task.isCancelled { break }
+            guard fetchDive(diveID, in: makeContext(container)) != nil else {
+                result.diveDeleted += sources.count
+                done += sources.count
+                progress(done, total)
+                continue
+            }
+            guard await acquire(diveID, onWaiting: onWaiting) else { break }
+            let base = done
+            result.add(await insert(sources, intoDiveWith: diveID, container: container, mode: .keepAsNew,
+                                    clockAdjustment: clockAdjustment,
+                                    progress: { processed, _ in progress(base + processed, total) }))
+            release(diveID)
+            done += sources.count
+        }
+        for (photoID, source) in updates {
+            if Task.isCancelled { break }
+            result.add(await updateExisting(photoID, with: source, container: container, onWaiting: onWaiting))
+            done += 1
+            progress(done, total)
+        }
+        return result
+    }
+
+    /// Replaces the stored photo `photoID` with `source`, under the reservation of the dive it
+    /// is on. Unreadable or lost photo → counted, nothing changed.
+    private static func updateExisting(_ photoID: UUID, with source: Source, container: ModelContainer,
+                                       onWaiting: (Bool) -> Void) async -> Result {
+        var result = Result()
+        let lookup = makeContext(container)
+        guard let diveID = fetchPhoto(photoID, in: lookup)?.dive?.persistentModelID else {
+            result.failedToSave += 1
+            return result
+        }
+        guard await acquire(diveID, onWaiting: onWaiting) else { return result }
+        defer { release(diveID) }
+        guard let (data, filename, info) = await loadAndRead(source), info.thumbnail != nil else {
+            result.unreadable += 1
+            return result
+        }
+        let context = makeContext(container)
+        // The identical file is already on that dive (e.g. another file of this import, under
+        // another name, has just updated this photo): nothing to replace.
+        let targetDive = fetchPhoto(photoID, in: context)?.diveID
+        if let targetDive, storedPhotos(withHash: info.contentHash, in: context).contains(where: { $0.diveID == targetDive }) {
+            result.duplicates += 1
+            return result
+        }
+        guard update(photoID, with: data, info: info, filename: filename, in: context) != nil else {
+            result.failedToSave += 1
+            return result
+        }
+        if save(context) {
+            result.updated += 1
+            result.updatedPhotoIDs.append(photoID)
+        } else {
+            result.failedToSave += 1
+        }
         return result
     }
 
@@ -335,7 +555,8 @@ enum PhotoImporter {
             return fetchDive(diveID, in: context)?.photosData ?? []
         }()
         guard !legacy.isEmpty else { return nil }
-        var result = await insert(legacy.map { .data($0, filename: nil) }, intoDiveWith: diveID, container: container)
+        var result = await insert(legacy.map { .data($0, filename: nil) }, intoDiveWith: diveID, container: container,
+                                  mode: .convertLegacy)
         // The legacy array as it is now (not the copy read at the start: another device may
         // have changed it meanwhile). An image leaves it only when a record with the same
         // content is attached to the dive now — so a converted copy the user removed during
@@ -360,10 +581,12 @@ enum PhotoImporter {
     static func apply(_ info: PhotoFileInfo, filename: String?, to photo: DivePhoto) {
         photo.contentHash = info.contentHash
         photo.originalFilename = filename
-        photo.fileSize = info.fileSize
         photo.pixelWidth = info.pixelWidth
         photo.pixelHeight = info.pixelHeight
         photo.captureDate = info.captureComponents.flatMap(WallClock.storedDate(from:))
+        photo.captureSubsecond = info.captureSubsecond
+        photo.metadataDate = info.metadataComponents.flatMap(WallClock.storedDate(from:))
+        photo.identityVersion = 1
         photo.iptcKeywords = info.keywords
         photo.iptcCaption = info.caption
         photo.iptcTitle = info.title
@@ -384,39 +607,62 @@ enum PhotoImporter {
         case file(URL)
     }
 
+    /// How `insert` treats a file that may already be in BlueDive.
+    enum InsertMode {
+        /// An import: the same file on the dive is skipped, and every other match is resolved
+        /// (`PhotoReimportResolver`): updated, skipped, or returned as a question.
+        case importing
+        /// The user chose "Keep both": added unless the identical file is on the dive.
+        case keepAsNew
+        /// The legacy array of the dive: only the same file on the dive is skipped (there is
+        /// no one to ask, and these are the dive's own photos).
+        case convertLegacy
+    }
+
     /// Every few photos are saved and their context released, so the originals already
     /// saved do not stay in memory while the rest of a large selection is imported.
     private static func insert(_ sources: [Source], intoDiveWith diveID: PersistentIdentifier,
                                container: ModelContainer,
+                               mode: InsertMode,
                                clockAdjustment: Double = 0,
                                progress: (Int, Int) -> Void = { _, _ in }) async -> Result {
         var result = Result()
         var context = makeContext(container)
         guard var dive = fetchDive(diveID, in: context) else { return result }
-        let diveStart = dive.timestamp
-        let durationSeconds = dive.durationSeconds
+        let diveUUID = dive.id
         var knownHashes = Set(existingHashes(forDive: dive.id, in: context))
         // Photos inserted since the last save (counted as imported only once saved).
         var pendingIDs: [UUID] = []
         var pendingHashes: [Data] = []
         /// Copies (in this selection) of photos not saved yet: duplicates only once those are.
         var pendingDuplicates = 0
+        /// Stored photos replaced since the last save.
+        var pendingUpdatedIDs: [UUID] = []
+        /// Stored photos an earlier file of this import inserted or replaced: a second file of
+        /// the same shot asks instead of replacing it again.
+        var used = Set<UUID>()
+        /// Identity fields read from stored photos' originals, to be saved with the next batch.
+        var identityRead = false
 
         func flush() {
-            guard !pendingIDs.isEmpty else { return }
+            guard !pendingIDs.isEmpty || !pendingUpdatedIDs.isEmpty || identityRead else { return }
+            identityRead = false
             if save(context) {
                 result.imported += pendingIDs.count
                 result.importedPhotoIDs += pendingIDs
                 result.duplicates += pendingDuplicates
+                result.updated += pendingUpdatedIDs.count
+                result.updatedPhotoIDs += pendingUpdatedIDs
             } else {
                 // The rollback discarded these photos (and so their copies were not stored
-                // either): they may be imported again.
-                result.failedToSave += pendingIDs.count + pendingDuplicates
+                // either) and the replacements: they may be imported again.
+                result.failedToSave += pendingIDs.count + pendingDuplicates + pendingUpdatedIDs.count
                 knownHashes.subtract(pendingHashes)
             }
             pendingIDs = []
             pendingHashes = []
             pendingDuplicates = 0
+            pendingUpdatedIDs = []
         }
 
         /// Saves, then continues in a fresh context; false when the dive is gone.
@@ -428,28 +674,12 @@ enum PhotoImporter {
             return true
         }
 
-        for (index, source) in sources.enumerated() {
+        files: for (index, source) in sources.enumerated() {
             if Task.isCancelled { break }
             defer { progress(index + 1, sources.count) }
-            let raw: RawSource
-            switch source {
-            case .data(let data, let filename): raw = .data(data, filename: filename)
-            case .file(let url): raw = .file(url)
-            case .pickerItem(let item):
-                guard let data = try? await item.loadTransferable(type: Data.self) else {
-                    result.unreadable += 1
-                    continue
-                }
-                raw = .data(data, filename: nil)
-            }
-            let loaded = await Task.detached(priority: .userInitiated) { () -> (Data, String?, PhotoFileInfo)? in
-                guard let (data, filename) = load(raw),
-                      let info = PhotoMetadataReader.read(data) else { return nil }
-                return (data, filename, info)
-            }.value
             // No thumbnail means ImageIO cannot draw the image: it would show as a placeholder
             // everywhere. Counted as unreadable (a legacy image then stays in the legacy array).
-            guard let (data, filename, info) = loaded, info.thumbnail != nil else {
+            guard let (data, filename, info) = await loadAndRead(source), info.thumbnail != nil else {
                 result.unreadable += 1
                 continue
             }
@@ -461,26 +691,186 @@ enum PhotoImporter {
                 }
                 continue
             }
+
+            if mode == .importing {
+                let incoming = PhotoReimportResolver.Incoming(
+                    contentHash: info.contentHash, capture: info.captureComponents,
+                    subsecond: info.captureSubsecond, filename: filename,
+                    edited: info.metadataComponents.flatMap(WallClock.storedDate(from:)),
+                    pixelWidth: info.pixelWidth, pixelHeight: info.pixelHeight, diveID: diveUUID)
+                let sameFile = storedPhotos(withHash: info.contentHash, in: context)
+                let (sameTime, read) = await storedPhotos(takenAt: info.captureComponents, reservedDive: diveUUID, in: context)
+                identityRead = identityRead || read
+                switch PhotoReimportResolver.resolve(incoming, sameFile: sameFile, sameTime: sameTime, used: used) {
+                case .new:
+                    break
+                case .already:
+                    result.duplicates += 1
+                    continue
+                case .older:
+                    result.olderSkipped += 1
+                    continue
+                case .update(let photoID):
+                    if let replaced = update(photoID, with: data, info: info, filename: filename, in: context) {
+                        // The replaced version is no longer in BlueDive.
+                        if let old = replaced { knownHashes.remove(old) }
+                        pendingUpdatedIDs.append(photoID)
+                        pendingHashes.append(info.contentHash)
+                        knownHashes.insert(info.contentHash)
+                        used.insert(photoID)
+                    } else {
+                        result.failedToSave += 1
+                    }
+                    if pendingIDs.count + pendingUpdatedIDs.count >= 5, !flushAndRenew() { break files }
+                    continue
+                case .ask(let reason, let candidates):
+                    result.questions.append(ReimportQuestion(
+                        source: source, filename: filename,
+                        capture: info.captureComponents.flatMap(WallClock.storedDate(from:)),
+                        preview: info.thumbnail, reason: reason, candidates: candidates,
+                        candidateDetails: candidateDetails(candidates, among: sameFile + sameTime,
+                                                           fileDive: diveUUID, in: context),
+                        diveID: diveID))
+                    continue
+                }
+            }
             knownHashes.insert(info.contentHash)
 
             let photo = DivePhoto()
             apply(info, filename: filename, to: photo)
             photo.clockAdjustmentSeconds = clockAdjustment
-            if let capture = info.captureComponents {
-                photo.profileOffsetSeconds = PhotoTiming.profileOffset(
-                    capture: capture, clockAdjustment: clockAdjustment,
-                    diveStart: diveStart, durationSeconds: durationSeconds)
-            }
             context.insert(photo)
             photo.setOriginal(data)
             photo.setThumbnail(info.thumbnail)
             photo.attach(to: dive)
             pendingIDs.append(photo.id)
             pendingHashes.append(info.contentHash)
-            if pendingIDs.count >= 5, !flushAndRenew() { break }
+            used.insert(photo.id)
+            if pendingIDs.count + pendingUpdatedIDs.count >= 5, !flushAndRenew() { break files }
         }
         flush()
         return result
+    }
+
+    /// Reads one source off the main thread: its bytes, file name and metadata; nil when it
+    /// cannot be loaded or is not an image.
+    private static func loadAndRead(_ source: Source) async -> (Data, String?, PhotoFileInfo)? {
+        let raw: RawSource
+        switch source {
+        case .data(let data, let filename): raw = .data(data, filename: filename)
+        case .file(let url): raw = .file(url)
+        case .pickerItem(let item):
+            guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
+            raw = .data(data, filename: nil)
+        }
+        return await Task.detached(priority: .userInitiated) { () -> (Data, String?, PhotoFileInfo)? in
+            guard let (data, filename) = load(raw),
+                  let info = PhotoMetadataReader.read(data) else { return nil }
+            return (data, filename, info)
+        }.value
+    }
+
+    /// Replaces the stored photo `photoID` (in `context`) with a newer version of the same
+    /// shot: the file, its thumbnail and everything read from it. Kept: the record, its dive,
+    /// species links and clock correction (the profile position follows the new capture
+    /// time). Not saved. Returns the replaced file's hash (nil inside: it had none); nil when
+    /// the photo or its dive is gone.
+    private static func update(_ photoID: UUID, with data: Data, info: PhotoFileInfo,
+                               filename: String?, in context: ModelContext) -> Data?? {
+        guard let photo = fetchPhoto(photoID, in: context), photo.dive != nil else { return nil }
+        let replacedHash = photo.contentHash
+        apply(info, filename: filename ?? photo.originalFilename, to: photo)
+        photo.setOriginal(data)
+        photo.setThumbnail(info.thumbnail)
+        return .some(replacedHash)
+    }
+
+    static func fetchPhoto(_ id: UUID, in context: ModelContext) -> DivePhoto? {
+        var descriptor = FetchDescriptor<DivePhoto>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    /// Stored photos (any dive) whose file has this hash.
+    private static func storedPhotos(withHash hash: Data, in context: ModelContext) -> [PhotoReimportResolver.Stored] {
+        let wanted: Data? = hash
+        let descriptor = FetchDescriptor<DivePhoto>(predicate: #Predicate { $0.contentHash == wanted })
+        return ((try? context.fetch(descriptor)) ?? []).map { stored($0, identityKnown: true) }
+    }
+
+    /// Stored photos taken in the same wall-clock second as `capture`. The query uses a
+    /// ±26 h window (`captureDate` is stored through the device's time zone, which may have
+    /// changed since), and the second is compared on wall-clock components. A photo whose
+    /// sub-second and edit time were never read has them read from its original now (only the
+    /// same-second candidates, so rarely more than one original is loaded). The fields are
+    /// saved only on photos of `reservedDive`, the dive this import holds (`identityRead` is
+    /// then true, for the caller to save); a photo of another dive is compared with them but
+    /// not written to. Without its original the photo is returned as not comparable.
+    private static func storedPhotos(takenAt capture: DateComponents?, reservedDive: UUID,
+                                     in context: ModelContext) async -> (photos: [PhotoReimportResolver.Stored], identityRead: Bool) {
+        guard let capture, let center = WallClock.storedDate(from: capture) else { return ([], false) }
+        let low = center.addingTimeInterval(-26 * 3600)
+        let high = center.addingTimeInterval(26 * 3600)
+        let past = Date.distantPast
+        let descriptor = FetchDescriptor<DivePhoto>(predicate: #Predicate {
+            ($0.captureDate ?? past) >= low && ($0.captureDate ?? past) <= high
+        })
+        let photos = ((try? context.fetch(descriptor)) ?? []).filter { photo in
+            photo.captureDate.map { PhotoReimportResolver.sameSecond(WallClock.components(ofStored: $0), capture) } ?? false
+        }
+        var result: [PhotoReimportResolver.Stored] = []
+        var identityRead = false
+        for photo in photos {
+            var entry = stored(photo, identityKnown: photo.identityVersion >= 1)
+            if !entry.identityKnown, let original = photo.original?.data,
+               let identity = await Task.detached(priority: .userInitiated, operation: {
+                   PhotoMetadataReader.readIdentity(original)
+               }).value {
+                let edited = identity.edited.flatMap(WallClock.storedDate(from:))
+                entry.subsecond = identity.subsecond
+                entry.edited = edited
+                entry.identityKnown = true
+                if photo.diveID == reservedDive {
+                    photo.captureSubsecond = identity.subsecond
+                    photo.metadataDate = edited
+                    photo.identityVersion = 1
+                    identityRead = true
+                }
+            }
+            result.append(entry)
+        }
+        return (result, identityRead)
+    }
+
+    /// The candidates of a question as its choices show them: file name, and the dive's number
+    /// and site when it is not the file's dive.
+    private static func candidateDetails(_ ids: [UUID], among stored: [PhotoReimportResolver.Stored],
+                                         fileDive: UUID, in context: ModelContext) -> [Candidate] {
+        ids.compactMap { id in
+            guard let photo = stored.first(where: { $0.id == id }) else { return nil }
+            let onOtherDive = photo.diveID != fileDive
+            var number: Int?
+            var site: String?
+            if let diveUUID = photo.diveID, onOtherDive || photo.filename == nil {
+                var descriptor = FetchDescriptor<Dive>(predicate: #Predicate { $0.id == diveUUID })
+                descriptor.fetchLimit = 1
+                if let dive = (try? context.fetch(descriptor))?.first {
+                    number = dive.diveNumber
+                    site = dive.siteName
+                }
+            }
+            return Candidate(photoID: id, filename: photo.filename, onOtherDive: onOtherDive,
+                             diveNumber: number, siteName: site)
+        }
+    }
+
+    private static func stored(_ photo: DivePhoto, identityKnown: Bool) -> PhotoReimportResolver.Stored {
+        PhotoReimportResolver.Stored(
+            id: photo.id, diveID: photo.diveID, contentHash: photo.contentHash,
+            capture: photo.captureDate.map(WallClock.components(ofStored:)),
+            subsecond: photo.captureSubsecond, filename: photo.originalFilename,
+            edited: photo.metadataDate, pixelWidth: photo.pixelWidth, pixelHeight: photo.pixelHeight,
+            identityKnown: identityKnown)
     }
 
     private static func makeContext(_ container: ModelContainer) -> ModelContext {
