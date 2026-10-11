@@ -27,6 +27,9 @@ nonisolated enum PhotoReimportResolver {
         var pixelHeight: Int
         /// The dive the file is being imported into.
         var diveID: UUID
+        /// Camera-clock correction (seconds) entered for this import; nil when the import has
+        /// none to offer (a dive's own Add Photo), so a stored correction is never changed.
+        var clockAdjustment: Double? = nil
     }
 
     /// A photo already in BlueDive.
@@ -43,6 +46,8 @@ nonisolated enum PhotoReimportResolver {
         /// False when its sub-second and edit time could not be read (an older photo whose
         /// original has not been downloaded from iCloud yet): it cannot be compared safely.
         var identityKnown: Bool
+        /// Its camera-clock correction (seconds).
+        var clockAdjustment: Double = 0
     }
 
     /// Why a file needs the user's decision.
@@ -67,6 +72,11 @@ nonisolated enum PhotoReimportResolver {
         case smallerWithoutDate
         /// Same edit time, but a different size: another export of the same version.
         case sameDateDifferentSize
+        /// The identical file is on the dive with another camera-clock correction.
+        case sameFileOtherCorrection
+        /// The same shot (a newer or the same version) is on the dive with another
+        /// camera-clock correction.
+        case otherCorrection
     }
 
     enum Verdict: Sendable, Equatable {
@@ -84,6 +94,15 @@ nonisolated enum PhotoReimportResolver {
 
     /// Edit times closer than this count as the same (TIFF `DateTime` has whole seconds).
     static let sameEditTolerance: TimeInterval = 1
+    /// Clock corrections closer than this count as the same.
+    static let sameCorrectionTolerance: TimeInterval = 1
+
+    /// The import gives a clock correction other than the stored photo's. Changing it moves
+    /// the photo on its profile (or to another dive), so it is never done without asking.
+    static func correctionDiffers(_ incoming: Incoming, _ stored: Stored) -> Bool {
+        guard let new = incoming.clockAdjustment else { return false }
+        return abs(new - stored.clockAdjustment) >= sameCorrectionTolerance
+    }
 
     /// - Parameters:
     ///   - sameFile: stored photos with the incoming file's hash, in any dive.
@@ -93,8 +112,13 @@ nonisolated enum PhotoReimportResolver {
     static func resolve(_ incoming: Incoming, sameFile: [Stored], sameTime: [Stored],
                         used: Set<UUID> = []) -> Verdict {
         // 0. The identical file.
-        if let here = sameFile.first(where: { $0.diveID == incoming.diveID }) {
-            return .already(here.id)
+        // Already there when any copy on the dive has the import's correction.
+        let here = sameFile.filter { $0.diveID == incoming.diveID }
+        if let match = here.first(where: { !correctionDiffers(incoming, $0) }) {
+            return .already(match.id)
+        }
+        if !here.isEmpty {
+            return .ask(.sameFileOtherCorrection, candidates: here.map(\.id))
         }
         if !sameFile.isEmpty {
             return .ask(.sameFileOnOtherDive, candidates: sameFile.map(\.id))
@@ -122,19 +146,22 @@ nonisolated enum PhotoReimportResolver {
             return .ask(.differentFilename, candidates: ids)
         }
         guard candidate.identityKnown else { return .ask(.notComparable, candidates: ids) }
-        // 5. The same shot: newer replaces, older or same is skipped.
+        // 5. The same shot: newer replaces, older or same is skipped. A newer or the same
+        // version imported with another clock correction asks: replacing it would move it.
+        let otherCorrection = correctionDiffers(incoming, candidate)
+        let replace: Verdict = otherCorrection ? .ask(.otherCorrection, candidates: ids) : .update(candidate.id)
         let incomingPixels = incoming.pixelWidth * incoming.pixelHeight
         let storedPixels = candidate.pixelWidth * candidate.pixelHeight
         if let new = incoming.edited, let old = candidate.edited {
             let delta = new.timeIntervalSince(old)
             if abs(delta) < sameEditTolerance {
-                return incomingPixels == storedPixels ? .already(candidate.id)
-                                                      : .ask(.sameDateDifferentSize, candidates: ids)
+                guard incomingPixels == storedPixels else { return .ask(.sameDateDifferentSize, candidates: ids) }
+                return otherCorrection ? .ask(.otherCorrection, candidates: ids) : .already(candidate.id)
             }
-            return delta > 0 ? .update(candidate.id) : .older(candidate.id)
+            return delta > 0 ? replace : .older(candidate.id)
         }
         // An edit time is unknown: replace only when nothing would shrink.
-        return incomingPixels >= storedPixels ? .update(candidate.id) : .ask(.smallerWithoutDate, candidates: ids)
+        return incomingPixels >= storedPixels ? replace : .ask(.smallerWithoutDate, candidates: ids)
     }
 
     /// Same wall-clock date and time to the second.

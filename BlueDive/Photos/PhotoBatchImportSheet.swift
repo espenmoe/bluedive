@@ -259,7 +259,10 @@ struct PhotoBatchImportSheet: View {
             summaryRow(Text("Imported"), result.imported, icon: "checkmark.circle.fill", color: .green)
             if result.updated > 0 {
                 // Own key: the label agrees with "photos" (fr-CA "Mises à jour"), unlike the shared "Updated".
-                summaryRow(Text(verbatim: NSLocalizedString("Updated (photos)", bundle: .forAppLanguage(), value: "Updated", comment: "Photo import summary row: stored photos replaced by a newer version of the same shot")), result.updated, icon: "arrow.triangle.2.circlepath", color: .blue)
+                summaryRow(Text(verbatim: NSLocalizedString("Updated (photos)", bundle: .forAppLanguage(), value: "Updated", comment: "Photo import summary row: stored photos replaced by a newer version of the same shot, or given a new camera clock correction")), result.updated, icon: "arrow.triangle.2.circlepath", color: .blue)
+            }
+            if result.moved > 0 {
+                summaryRow(Text("Moved from another dive"), result.moved, icon: "arrow.right.circle", color: .blue)
             }
             summaryRow(Text("Already in BlueDive"), result.duplicates, icon: "equal.circle", color: .secondary)
             if result.olderSkipped > 0 {
@@ -522,19 +525,20 @@ struct PhotoBatchImportSheet: View {
         }
     }
 
-    /// Carries out the answers to the import's questions (default: keep both), then shows the
-    /// summary.
+    /// Carries out the answers to the import's questions (unanswered: each question's default
+    /// choice), then shows the summary.
     private func answerQuestions(after firstPass: PhotoImporter.Result) {
-        let answers = reimportQuestions.map { ($0, reimportAnswers[$0.id] ?? .keepBoth) }
-        let adjustment = clockAdjustment
+        let answers = reimportQuestions.map { ($0, reimportAnswers[$0.id] ?? $0.defaultChoice) }
         let container = modelContext.container
         work?.cancel()
         work = Task {
             phase = .importing(done: 0, total: answers.count)
-            let result = await PhotoImporter.answer(answers, container: container, clockAdjustment: adjustment,
+            let result = await PhotoImporter.answer(answers, container: container,
                                                     onWaiting: { waitingForOtherTask = $0 },
                                                     progress: { done, total in phase = .importing(done: done, total: total) })
             touchedDives.formUnion(answers.map(\.0.diveID))
+            // The dives the moved photos left lose a photo.
+            touchedDives.formUnion(result.movedFromDiveIDs)
             photosOfDeletedDives += result.diveDeleted
             var summary = firstPass
             summary.add(result)

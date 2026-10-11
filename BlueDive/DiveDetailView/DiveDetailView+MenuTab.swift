@@ -742,7 +742,9 @@ extension DiveDetailView {
             Text(verbatim: ([
                 String(format: NSLocalizedString("Imported: %@", bundle: .forAppLanguage(), value: "Imported: %@", comment: "Photo import summary line: photos added"), Double(result.imported).localizedString(decimals: 0))
             ] + (result.updated > 0 ? [
-                String(format: NSLocalizedString("Updated: %@", bundle: .forAppLanguage(), value: "Updated: %@", comment: "Photo import summary line: stored photos replaced by a newer version of the same shot"), Double(result.updated).localizedString(decimals: 0))
+                String(format: NSLocalizedString("Updated: %@", bundle: .forAppLanguage(), value: "Updated: %@", comment: "Photo import summary line: stored photos replaced by a newer version of the same shot, or given a new camera clock correction"), Double(result.updated).localizedString(decimals: 0))
+            ] : []) + (result.moved > 0 ? [
+                String(format: NSLocalizedString("Moved from another dive: %@", bundle: .forAppLanguage(), value: "Moved from another dive: %@", comment: "Photo import summary line: stored photos moved to this dive by an Update"), Double(result.moved).localizedString(decimals: 0))
             ] : []) + [
                 String(format: NSLocalizedString("Already in BlueDive: %@", bundle: .forAppLanguage(), value: "Already in BlueDive: %@", comment: "Photo import summary line: files skipped because the same photo is already in BlueDive"), Double(result.duplicates).localizedString(decimals: 0))
             ] + (result.olderSkipped > 0 ? [
@@ -854,9 +856,9 @@ extension DiveDetailView {
         guard result.questions.isEmpty else {
             guard session.isShown else {
                 // The dive screen was left during the import: nobody can answer, so the files
-                // get the default answer, Keep both — added as new photos, nothing replaced
-                // or lost.
-                _ = await PhotoImporter.answer(result.questions.map { ($0, .keepBoth) }, container: container)
+                // get their default answer (Keep both, or Skip for a copy of a file already in
+                // BlueDive): nothing replaced, moved or lost.
+                _ = await PhotoImporter.answer(result.questions.map { ($0, $0.defaultChoice) }, container: container)
                 commitPhotoChange(diveID: diveID)
                 importingPhotosDiveID = nil
                 return
@@ -888,6 +890,8 @@ extension DiveDetailView {
             var summary = firstPass
             summary.add(result)
             commitPhotoChange(diveID: diveID)
+            // The dives photos were moved from (Update on another dive's photo).
+            for movedFrom in Set(result.movedFromDiveIDs) { commitPhotoChange(diveID: movedFrom) }
             if session.decisionSheetOpen {
                 // Shown by the sheet's onDismiss.
                 session.pendingSummary = (summary, diveID)
@@ -907,9 +911,9 @@ extension DiveDetailView {
             catalogue: catalogue)
         // Reported only while the same dive is shown.
         guard dive.persistentModelID == diveID else { return }
-        let handled = result.imported + result.duplicates + result.updated + result.olderSkipped + result.skippedByUser
+        let handled = result.imported + result.duplicates + result.updated + result.moved + result.olderSkipped + result.skippedByUser
         let hasProblems = result.duplicates > 0 || result.unreadable > 0 || result.failedToSave > 0
-            || result.updated > 0 || result.olderSkipped > 0 || result.skippedByUser > 0
+            || result.updated > 0 || result.moved > 0 || result.olderSkipped > 0 || result.skippedByUser > 0
         if handled == 0 {
             showFileImportError = true
         } else if !proposals.isEmpty {

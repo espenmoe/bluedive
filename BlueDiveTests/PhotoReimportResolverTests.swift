@@ -14,18 +14,21 @@ struct PhotoReimportResolverTests {
 
     private func incoming(hash: UInt8 = 1, capture: DateComponents?? = nil, subsecond: String? = nil,
                           filename: String? = "PANA0202.jpg", edited: Date? = nil,
-                          size: (Int, Int) = (4000, 3000)) -> PhotoReimportResolver.Incoming {
+                          size: (Int, Int) = (4000, 3000), correction: Double? = nil) -> PhotoReimportResolver.Incoming {
         PhotoReimportResolver.Incoming(contentHash: Data([hash]), capture: capture ?? self.capture,
                                        subsecond: subsecond, filename: filename, edited: edited,
-                                       pixelWidth: size.0, pixelHeight: size.1, diveID: dive)
+                                       pixelWidth: size.0, pixelHeight: size.1, diveID: dive,
+                                       clockAdjustment: correction)
     }
 
     private func stored(id: UUID = UUID(), dive: UUID? = nil, hash: UInt8 = 9, capture: DateComponents? = nil,
                         subsecond: String? = nil, filename: String? = "PANA0202.jpg", edited: Date? = nil,
-                        size: (Int, Int) = (4000, 3000), known: Bool = true) -> PhotoReimportResolver.Stored {
+                        size: (Int, Int) = (4000, 3000), known: Bool = true,
+                        correction: Double = 0) -> PhotoReimportResolver.Stored {
         PhotoReimportResolver.Stored(id: id, diveID: dive ?? self.dive, contentHash: Data([hash]),
                                      capture: capture ?? self.capture, subsecond: subsecond, filename: filename,
-                                     edited: edited, pixelWidth: size.0, pixelHeight: size.1, identityKnown: known)
+                                     edited: edited, pixelWidth: size.0, pixelHeight: size.1, identityKnown: known,
+                                     clockAdjustment: correction)
     }
 
     // MARK: Rule 0 — the identical file
@@ -162,6 +165,56 @@ struct PhotoReimportResolverTests {
         let photo = stored(edited: earlier)
         #expect(PhotoReimportResolver.resolve(incoming(edited: nil, size: (1600, 1200)), sameFile: [], sameTime: [photo])
                 == .ask(.smallerWithoutDate, candidates: [photo.id]))
+    }
+
+    // MARK: Another camera-clock correction — moving or re-timing a photo always asks
+
+    @Test func sameFileWithAnotherCorrectionAsks() {
+        let photo = stored(hash: 1, correction: 0)
+        #expect(PhotoReimportResolver.resolve(incoming(correction: 3600), sameFile: [photo], sameTime: [])
+                == .ask(.sameFileOtherCorrection, candidates: [photo.id]))
+    }
+
+    @Test func sameFileWithTheCorrectionOnAnyCopyIsAlready() {
+        let other = stored(hash: 1, correction: 0)
+        let match = stored(hash: 1, correction: 3600)
+        for copies in [[other, match], [match, other]] {
+            #expect(PhotoReimportResolver.resolve(incoming(correction: 3600), sameFile: copies, sameTime: []) == .already(match.id))
+        }
+    }
+
+    @Test func sameFileWithinOneSecondOfTheCorrectionIsAlready() {
+        let photo = stored(hash: 1, correction: 3600)
+        #expect(PhotoReimportResolver.resolve(incoming(correction: 3600.4), sameFile: [photo], sameTime: []) == .already(photo.id))
+    }
+
+    @Test func noCorrectionGivenNeverAsksAboutIt() {
+        let photo = stored(hash: 1, correction: 3600)
+        #expect(PhotoReimportResolver.resolve(incoming(correction: nil), sameFile: [photo], sameTime: []) == .already(photo.id))
+    }
+
+    @Test func newerVersionWithAnotherCorrectionAsks() {
+        let photo = stored(edited: earlier, correction: 0)
+        #expect(PhotoReimportResolver.resolve(incoming(edited: later, correction: 600), sameFile: [], sameTime: [photo])
+                == .ask(.otherCorrection, candidates: [photo.id]))
+    }
+
+    @Test func sameVersionWithAnotherCorrectionAsks() {
+        let photo = stored(edited: earlier, correction: 0)
+        #expect(PhotoReimportResolver.resolve(incoming(edited: earlier, correction: 600), sameFile: [], sameTime: [photo])
+                == .ask(.otherCorrection, candidates: [photo.id]))
+    }
+
+    @Test func olderVersionWithAnotherCorrectionIsSkipped() {
+        let photo = stored(edited: later, correction: 0)
+        #expect(PhotoReimportResolver.resolve(incoming(edited: earlier, correction: 600), sameFile: [], sameTime: [photo])
+                == .older(photo.id))
+    }
+
+    @Test func newerVersionWithTheSameCorrectionUpdates() {
+        let photo = stored(edited: earlier, correction: 600)
+        #expect(PhotoReimportResolver.resolve(incoming(edited: later, correction: 600), sameFile: [], sameTime: [photo])
+                == .update(photo.id))
     }
 
     // MARK: Dates read from files
