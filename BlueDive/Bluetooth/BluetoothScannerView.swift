@@ -121,6 +121,9 @@ struct BluetoothScannerView: View {
     @State var cutoffFilteredCount: Int = 0
     /// The cutoff actually applied; nil when none was.
     @State var cutoffAppliedDate: Date?
+    /// The cutoff the download stopped at (older dives were never transferred); nil when the
+    /// download did not reach it.
+    @State var cutoffStopDate: Date?
 
     /// DatePicker binding for the import cutoff. Routing user interaction through this setter
     /// (rather than `$importCutoffDate`) is what distinguishes a hand-picked date from a

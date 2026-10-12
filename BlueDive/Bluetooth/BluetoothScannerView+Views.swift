@@ -199,7 +199,7 @@ extension BluetoothScannerView {
                         .adaptiveDatePickerStyle()
                     }
                 } footer: {
-                    Text("Dives recorded before this date are still transferred from the dive computer, then discarded — they are neither re-imported nor updated. This does not make the sync faster, and applies to this sync only.")
+                    Text("The sync stops at the first dive recorded before this date — older dives are not downloaded, so they are neither re-imported nor updated. Applies to this sync only.")
                 }
             }
 
@@ -371,13 +371,13 @@ extension BluetoothScannerView {
                 //   only hedge the user gets for the case where the control is armed but silently
                 //   inert.
                 if downloadAllDives {
-                    Text("Dives recorded before this date are still transferred from the dive computer, then discarded — they are neither re-imported nor updated. This does not make the sync faster, and applies to this sync only.")
+                    Text("The sync stops at the first dive recorded before this date — older dives are not downloaded, so they are neither re-imported nor updated. Applies to this sync only.")
                 } else {
                     // "the most recent dive in your logbook" rather than "your most recent logged
                     // dive": a never-synced computer has no Gear record tying it to a diver, so on
                     // this screen the default can only be narrowed as far as the active diver
                     // filter — it cannot promise to be the reader's own dive.
-                    Text("Dives recorded before this date are still transferred from the dive computer, then discarded instead of being added to your logbook — this does not make the sync faster. The date defaults to the most recent dive in your logbook, or one year ago if your logbook is empty, and applies to this sync only. Has no effect on a device you've already synced.")
+                    Text("The sync stops at the first dive recorded before this date — older dives are not downloaded or added to your logbook. The date defaults to the most recent dive in your logbook, or one year ago if your logbook is empty, and applies to this sync only. Has no effect on a device you've already synced.")
                 }
             }
 
@@ -489,6 +489,15 @@ extension BluetoothScannerView {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
+                }
+
+                // The download ended at the import cutoff: say so, since the dives it skipped were
+                // never downloaded and so are not counted anywhere above.
+                if let cutoffStopDate {
+                    Text(verbatim: String(format: NSLocalizedString("The sync stopped at the first dive recorded before %@ — older dives were not downloaded.", bundle: .forAppLanguage(), value: "The sync stopped at the first dive recorded before %@ — older dives were not downloaded.", comment: "Note in the Bluetooth sync results when the download ended at the user's import cutoff date, so older dives were never transferred. %@ is the cutoff date."), cutoffStopDate.formatted(.dateTime.locale(locale).day().month(.wide).year())))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
 
                 // Surfaces the same partial-sync warning the pre-import confirmation alert shows —
@@ -755,13 +764,13 @@ extension BluetoothScannerView {
 
                         Text("Available when searching for new devices, and alongside Download All Dives for a known computer — the common cases where a dive computer sends its whole history. A never-synced computer has no sync bookmark, so it sends everything by default; that can mean hundreds of dives you already logged by hand or imported from another app. If a computer you've already synced turns out not to need a full re-download, the limit simply has nothing to do.")
 
-                        Text("Dives recorded before the date you choose are discarded after they arrive, instead of being added to your logbook. Every dive is still transferred from the computer, so the sync takes exactly as long — only your logbook stays clean. When re-downloading a known computer, older dives are also not refreshed with the computer's data.")
+                        Text("The sync stops at the first dive recorded before the date you choose, so older dives are never transferred from the computer — a computer holding hundreds of dives you already logged syncs in the time its new dives take. Those older dives are not added to your logbook and, when re-downloading a known computer, not refreshed with the computer's data.")
 
                         // Same wording caveat as the Search screen's footer: this paragraph covers
                         // both screens, and on the Search screen the owning diver is unknowable.
                         Text("The date defaults to the most recent dive in your logbook, or one year ago if your logbook is empty. The limit applies to a single sync and is never remembered: once a computer is known, the sync bookmark fetches only new dives on its own, so a saved date limit could silently hide dives later.")
 
-                        Text("The sync bookmark is saved even when every downloaded dive falls before your date, so the next sync still fetches only genuinely new dives.")
+                        Text("The sync bookmark is saved even when no dive on the computer is newer than your date, so the next sync still fetches only genuinely new dives.")
                             .foregroundStyle(.secondary)
                             .font(.callout)
                     }
@@ -870,9 +879,10 @@ extension BluetoothScannerView {
                 base = skipped == 1
                     ? NSLocalizedString("1 dive already present", bundle: bundle, comment: "Subtitle displayed when exactly one dive is already present in the logbook.")
                     : String(format: NSLocalizedString("%@ dives already present", bundle: bundle, value: "%@ dives already present", comment: "Subtitle showing the number of dives already present in the logbook. %@ is the locale-formatted dive count."), Double(skipped).localizedString(decimals: 0))
-            } else if imported > 0 && cutoffFilteredCount > 0 {
+            } else if imported > 0 && (cutoffFilteredCount > 0 || cutoffStopDate != nil) {
                 // "All dives have been imported" is only a true statement when nothing was held
-                // back. With a cutoff in play some downloaded dives were deliberately discarded,
+                // back. With a cutoff in play some dives were deliberately left out — discarded
+                // after download, or never downloaded because the sync stopped at the cutoff —
                 // so report the count that actually made it into the logbook instead. Both the
                 // singular and the plural reuse the same keys completedView's body uses, so the
                 // header and the body render an identical count identically.
