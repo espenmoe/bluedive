@@ -190,11 +190,14 @@ extension ContentView {
         //    match a more-specific auxiliary type: ExportableFileDocument.writableContentTypes
         //    includes .blueDiveXML (conforms to public.xml), so iOS can resolve contentType:.xml
         //    to .blueDiveXML and save gear/cert/insurance exports with a .bluedive extension.
-        let isBlueDive = (snippet.contains("<software>BlueDive</software>") && snippet.contains("<blueDiveExport>"))
+        //    Fingerprint exports (Settings → Bluetooth Import) are also saved as .bluedive; they
+        //    are excluded here and routed to the fingerprint import flow below.
+        let isFingerprintXML = snippet.contains("<blueDiveFingerprintExport>")
+        let isBlueDive = !isFingerprintXML && ((snippet.contains("<software>BlueDive</software>") && snippet.contains("<blueDiveExport>"))
             || (url.pathExtension.lowercased() == "bluedive"
                 && !snippet.contains("<blueDiveGearExport>")
                 && !snippet.contains("<blueDiveCertificationExport>")
-                && !snippet.contains("<blueDiveInsuranceExport>"))
+                && !snippet.contains("<blueDiveInsuranceExport>")))
 
         // 1a. BlueDive auxiliary XML types — gear, certification, and insurance exports.
         //     Checked after isBlueDive to avoid double-matching.
@@ -228,7 +231,14 @@ extension ContentView {
             || snippet.contains("mac-dive.com")
         )
 
-        if isGarminFIT {
+        if isFingerprintXML {
+            // BlueDive fingerprint XML — imported here with the same flow as
+            // Settings → Bluetooth Import (preview, then add the devices not stored yet).
+            if let data = rawData {
+                pendingFingerprintImport = FingerprintImportRequest(fileName: url.lastPathComponent, content: .success(data))
+            }
+
+        } else if isGarminFIT {
             // Garmin FIT — SI units are embedded; show the options sheet
             // for confirm/cancel parity with UDDF (no unit pickers, no gear toggle).
             let options = ImportFormatOptions()

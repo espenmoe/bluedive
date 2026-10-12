@@ -69,6 +69,8 @@ struct ContentView: View {
         var fileType: ImportFileType = .macDive
     }
     @State var pendingImport: PendingImport?
+    /// A fingerprint file opened from Files/Finder/AirDrop/Mail, handed to `.fingerprintImportFlow`.
+    @State var pendingFingerprintImport: FingerprintImportRequest?
     @State var importFormatOptions = ImportFormatOptions()
 
     struct PendingDuplicateImport: Identifiable {
@@ -530,6 +532,7 @@ struct ContentView: View {
             } message: { error in
                 Text(error.localizedDescription)
             }
+            .fingerprintImportFlow($pendingFingerprintImport)
             .alert("Delete dive?", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) { diveToDelete = nil }
                 Button("Delete", role: .destructive) {
