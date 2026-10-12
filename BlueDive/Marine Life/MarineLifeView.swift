@@ -31,6 +31,7 @@ struct MarineLifeView: View {
     /// iNaturalist taxon to show only, as "rank|name" ("" = all), e.g. "family|Nephropidae".
     @State private var taxonFilter: String = ""
     @State private var showAddSpecies = false
+    @State private var showFilterSheet = false
     @State private var buildPlan: SpeciesCatalog.BuildPlan?
     @State private var buildResult: (created: Int, linked: Int)?
     @State private var speciesProposals: [SpeciesPhotoProposal] = []
@@ -362,6 +363,20 @@ struct MarineLifeView: View {
                 EditSpeciesView(species: nil)
                     .standardSheetPresentation()
             }
+            .sheet(isPresented: $showFilterSheet) {
+                MarineLifeFilterSheet(
+                    categories: usedCategories,
+                    taxonNames: Self.filterRanks.map { (rank: $0, names: taxonNames(rank: $0)) },
+                    groupCommonNames: cachedGroupCommonNames,
+                    showsNotLinked: UserPreferences.shared.fetchTaxonomyOnline,
+                    activeFilterCount: activeFilterCount,
+                    categoryFilter: $categoryFilter,
+                    taxonFilter: $taxonFilter,
+                    notLinkedFilter: $notLinkedFilter,
+                    reset: resetFilters
+                )
+                .standardSheetPresentation()
+            }
             .sheet(isPresented: Binding(
                 get: { !speciesProposals.isEmpty },
                 set: { if !$0 { speciesProposals = [] } }
@@ -421,11 +436,15 @@ struct MarineLifeView: View {
         // navigation bar does; separate items (especially menus) get separate capsules.
         ToolbarItemGroup(placement: .primaryAction) {
             addSpeciesButton
+            filterButton
             catalogueMenu
         }
         #else
         ToolbarItem(placement: .primaryAction) {
             addSpeciesButton
+        }
+        ToolbarItem(placement: .primaryAction) {
+            filterButton
         }
         ToolbarItem(placement: .primaryAction) {
             catalogueMenu
@@ -458,78 +477,47 @@ struct MarineLifeView: View {
             } label: {
                 Label("Find Species in Photos", systemImage: "text.viewfinder")
             }
-            if Self.filterRanks.contains(where: { !taxonNames(rank: $0).isEmpty }) || !usedCategories.isEmpty
-                || UserPreferences.shared.fetchTaxonomyOnline {
-                Divider()
-            }
-            if UserPreferences.shared.fetchTaxonomyOnline {
-                Button {
-                    notLinkedFilter.toggle()
-                } label: {
-                    if notLinkedFilter {
-                        Label("Not Linked to iNaturalist", systemImage: "checkmark")
-                    } else {
-                        Text("Not Linked to iNaturalist")
-                    }
-                }
-            }
-            if Self.filterRanks.contains(where: { !taxonNames(rank: $0).isEmpty }) {
-                // Filter by Group › All Groups / Class › / Order › / Family › / Genus ›
-                Menu {
-                    Button {
-                        taxonFilter = ""
-                    } label: {
-                        if taxonFilter.isEmpty {
-                            Label("All Groups", systemImage: "checkmark")
-                        } else {
-                            Text("All Groups")
-                        }
-                    }
-                    ForEach(Self.filterRanks, id: \.self) { rank in
-                        let names = taxonNames(rank: rank)
-                        if !names.isEmpty {
-                            Picker(selection: $taxonFilter) {
-                                ForEach(names, id: \.self) { name in
-                                    Text(verbatim: Species.groupLabel(name: name, commonName: cachedGroupCommonNames[name]))
-                                        .tag("\(rank)|\(name)")
-                                }
-                            } label: {
-                                Text(verbatim: INaturalistUpdater.localizedRank(rank))
-                            }
-                            .pickerStyle(.menu)
-                        }
-                    }
-                } label: {
-                    Label("Filter by Group", systemImage: "leaf")
-                }
-            }
-            if !usedCategories.isEmpty {
-                Menu {
-                    Picker(selection: $categoryFilter) {
-                        Text("All Categories").tag("")
-                        ForEach(usedCategories, id: \.self) { category in
-                            Text(verbatim: SpeciesCategory.displayName(category) ?? category).tag(category)
-                        }
-                    } label: {
-                        Text("Category")
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Label("Filter by Category", systemImage: "square.grid.2x2")
-                }
-            }
         } label: {
-            // Orange while a filter is active, like the app's other filter buttons.
-            if categoryFilter.isEmpty && taxonFilter.isEmpty && !notLinkedFilterActive {
-                Image(systemName: "ellipsis")
-                    .foregroundStyle(.cyan)
-            } else {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .foregroundStyle(.orange)
-            }
+            Image(systemName: "ellipsis")
+                .foregroundStyle(.cyan)
         }
         .toolbarMenuIndicatorHiddenOnMac()
         .accessibilityLabel(Text("More"))
+    }
+
+    /// Opens the filter sheet; orange with the number of active filters, as in the Dives and
+    /// Map tabs.
+    private var filterButton: some View {
+        Button(action: { showFilterSheet = true }) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .foregroundStyle(activeFilterCount > 0 ? .orange : .cyan)
+
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(3)
+                        .background(Color.orange, in: Circle())
+                        .offset(x: 6, y: -6)
+                }
+            }
+        }
+        .accessibilityLabel(activeFilterCount == 0
+            ? Text("Filter species")
+            : Text(verbatim: String(format: NSLocalizedString("%d active filters", bundle: .forAppLanguage(), comment: "Accessibility label for the filter button showing the number of active filters"), activeFilterCount))
+        )
+    }
+
+    /// Category, group and "not linked" filters in use.
+    private var activeFilterCount: Int {
+        (categoryFilter.isEmpty ? 0 : 1) + (taxonFilter.isEmpty ? 0 : 1) + (notLinkedFilterActive ? 1 : 0)
+    }
+
+    private func resetFilters() {
+        categoryFilter = ""
+        taxonFilter = ""
+        notLinkedFilter = false
     }
 
     // MARK: - Hero Stats Row
@@ -628,11 +616,23 @@ struct MarineLifeView: View {
                 }
 
                 if filteredSpecies.isEmpty {
-                    Text("No matches")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 20)
+                    VStack(spacing: 12) {
+                        Text("No matches")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if activeFilterCount > 0 {
+                            Button {
+                                withAnimation { resetFilters() }
+                            } label: {
+                                Label("Clear filters", systemImage: "xmark.circle.fill")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.cyan)
+                            }
+                            .borderlessButton()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
                 } else {
                     let rows = filteredSpecies
                     LazyVStack(spacing: 0) {
@@ -911,6 +911,226 @@ struct UnlinkedSightingsView: View {
             }
             .standardSheetPresentation()
         }
+    }
+}
+
+// MARK: - Marine Life Filter Sheet
+
+/// The Marine Life tab's filters, laid out like the Dives tab's filter sheet (cards of
+/// chips, a reset button at the top).
+struct MarineLifeFilterSheet: View {
+    /// Categories used in the catalogue.
+    let categories: [String]
+    /// Group names per rank ("class", "order", "family", "genus"), in display order.
+    let taxonNames: [(rank: String, names: [String])]
+    let groupCommonNames: [String: String]
+    /// The "not linked" filter is offered only while iNaturalist lookups are on.
+    let showsNotLinked: Bool
+    let activeFilterCount: Int
+
+    @Binding var categoryFilter: String
+    @Binding var taxonFilter: String
+    @Binding var notLinkedFilter: Bool
+    let reset: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    /// The categories offered, plus the selected one if no species uses it any more, so a
+    /// filter left on an unused value can still be seen and cleared.
+    private var categoryChoices: [String] {
+        categoryFilter.isEmpty || categories.contains(categoryFilter) ? categories : categories + [categoryFilter]
+    }
+
+    /// The groups offered per rank, plus the selected one if no species is in it any more.
+    private var taxonChoices: [(rank: String, names: [String])] {
+        let parts = taxonFilter.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return taxonNames.filter { !$0.names.isEmpty } }
+        var choices = taxonNames
+        if let index = choices.firstIndex(where: { $0.rank == parts[0] }) {
+            if !choices[index].names.contains(parts[1]) { choices[index].names.append(parts[1]) }
+        } else {
+            choices.append((parts[0], [parts[1]]))
+        }
+        return choices.filter { !$0.names.isEmpty }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    resetSection
+                    if showsNotLinked {
+                        notLinkedSection
+                    }
+                    if !categoryChoices.isEmpty {
+                        categorySection
+                    }
+                    if !taxonChoices.isEmpty {
+                        groupSection
+                    }
+                    // Unlike the Dives sheet, no card is always shown: explain how to get some.
+                    if !showsNotLinked && categoryChoices.isEmpty && taxonChoices.isEmpty {
+                        ContentUnavailableView(
+                            "No filters available",
+                            systemImage: "line.3.horizontal.decrease",
+                            description: Text("Give species a category, or link them to iNaturalist, to filter them here.")
+                        )
+                        .padding(.top, 40)
+                    }
+                }
+                .padding()
+            }
+            .background(AppBackground().ignoresSafeArea())
+            .navigationTitle(NSLocalizedString("Filters", bundle: Bundle.forAppLanguage(), comment: "Title of the filter sheet without sort"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.large)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    closeToolbarButton {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Sections
+
+    private var notLinkedSection: some View {
+        Toggle(isOn: $notLinkedFilter.animation()) {
+            HStack(spacing: 10) {
+                Image(systemName: "link.badge.plus")
+                    .font(.title3)
+                    .foregroundStyle(.cyan)
+                Text("Not Linked to iNaturalist")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 4)
+        }
+        .fullWidthSwitch()
+        .filterCardStyle()
+    }
+
+    private var categorySection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            FilterSectionHeader(title: "Category", icon: "square.grid.2x2")
+
+            chipRow {
+                ModernFilterChip(
+                    label: NSLocalizedString("All", bundle: Bundle.forAppLanguage(), comment: "Filter chip label for selecting all items"),
+                    isSelected: categoryFilter.isEmpty,
+                    color: .orange
+                ) {
+                    withAnimation { categoryFilter = "" }
+                }
+
+                ForEach(categoryChoices, id: \.self) { category in
+                    ModernFilterChip(
+                        label: SpeciesCategory.displayName(category) ?? category,
+                        isSelected: categoryFilter == category,
+                        color: .orange
+                    ) {
+                        withAnimation { categoryFilter = category }
+                    }
+                }
+            }
+        }
+        .filterCardStyle()
+    }
+
+    private var groupSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            FilterSectionHeader(title: "Group", icon: "leaf")
+
+            chipRow {
+                ModernFilterChip(
+                    label: NSLocalizedString("All", bundle: Bundle.forAppLanguage(), comment: "Filter chip label for selecting all items"),
+                    isSelected: taxonFilter.isEmpty,
+                    color: .green
+                ) {
+                    withAnimation { taxonFilter = "" }
+                }
+            }
+
+            ForEach(taxonChoices, id: \.rank) { rank, names in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: INaturalistUpdater.localizedRank(rank))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+
+                    chipRow {
+                        ForEach(names, id: \.self) { name in
+                            let tag = "\(rank)|\(name)"
+                            ModernFilterChip(
+                                label: Species.groupLabel(name: name, commonName: groupCommonNames[name]),
+                                isSelected: taxonFilter == tag,
+                                color: .green
+                            ) {
+                                withAnimation { taxonFilter = tag }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .filterCardStyle()
+    }
+
+    private var resetSection: some View {
+        Group {
+            if activeFilterCount > 0 {
+                Button(role: .destructive) {
+                    withAnimation { reset() }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                            .font(.title3)
+                        Text(verbatim: resetButtonLabel)
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.red.opacity(0.15))
+                    .foregroundStyle(.red)
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    private var resetButtonLabel: String {
+        activeFilterCount == 1
+            ? NSLocalizedString("Reset 1 filter", bundle: Bundle.forAppLanguage(), comment: "Reset button label when exactly one filter is active.")
+            : String(format: NSLocalizedString("Reset %lld filters", bundle: Bundle.forAppLanguage(), comment: "Reset button label showing the number of active filters (plural)."), activeFilterCount)
+    }
+
+    /// A row of filter chips, as in the Dives filter sheet. iOS: one line that scrolls
+    /// sideways, with an edge fade. macOS: the chips wrap onto as many lines as needed.
+    @ViewBuilder
+    private func chipRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        #if os(macOS)
+        WrappingChipLayout(spacing: 12) {
+            content()
+        }
+        .padding(.horizontal, 4)
+        #else
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                content()
+            }
+            .padding(.horizontal, 4)
+        }
+        .chipRowFade()
+        #endif
     }
 }
 
