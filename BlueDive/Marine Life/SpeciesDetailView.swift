@@ -709,15 +709,19 @@ struct SpeciesImageView: View {
 
     var body: some View {
         if let size {
-            content(symbolFont: .system(size: size * 0.4))
+            // Outlined from 64 pt (the species page header), as on the tiles; filled for the
+            // small list icons, where an outline reads poorly.
+            content(symbol: size >= 64 ? "fish" : "fish.fill", symbolFont: .system(size: size * 0.4))
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.2))
         } else {
-            content(symbolFont: .title2)
+            // A tile: a larger outlined fish (the small icons keep the filled one, which reads
+            // better at 32 pt).
+            content(symbol: "fish", symbolFont: .system(size: 44, weight: .regular))
         }
     }
 
-    private func content(symbolFont: Font) -> some View {
+    private func content(symbol: String, symbolFont: Font) -> some View {
         Group {
             if let image {
                 Image(platformImage: image)
@@ -725,8 +729,10 @@ struct SpeciesImageView: View {
                     .scaledToFill()
             } else {
                 ZStack {
-                    Color.orange.opacity(0.15)
-                    Image(systemName: "fish.fill")
+                    // Neutral, as a photo tile waiting for its thumbnail; the fish keeps the
+                    // Marine Life orange.
+                    Color.secondary.opacity(0.15)
+                    Image(systemName: symbol)
                         .font(symbolFont)
                         .foregroundStyle(.orange)
                 }

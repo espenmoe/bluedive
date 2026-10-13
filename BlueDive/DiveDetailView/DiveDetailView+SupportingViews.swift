@@ -37,10 +37,10 @@ struct RatingStarsView: View {
 
 /// A sighting in the dive's Marine Life grid, laid out as a photo tile (`PhotoGridTile`): the
 /// linked species' image — a fish symbol for a sighting not in the catalogue or a species
-/// without an image — with the quantity over its corner, and the name shown for the sighting
-/// below. A tap calls `onOpen` (the dive decides: species page, or the sighting's editor);
-/// a long press toggles edit mode, where the remove badge appears. Outside edit mode the
-/// quantity is a menu that changes it in place (`onSetQuantity`).
+/// without an image — with the quantity as a bar at its bottom-leading corner, and the name
+/// shown for the sighting below. A tap calls `onOpen` (the dive decides: species page, or the
+/// sighting's editor); a long press toggles edit mode, where the remove badge appears.
+/// Outside edit mode the quantity is a menu that changes it in place (`onSetQuantity`).
 struct SightingGridTile: View {
     let fish: MarineSight
     /// The linked species, if its page can be opened (resolved by the dive, as for the tap).
@@ -53,15 +53,22 @@ struct SightingGridTile: View {
 
     private var quantity: SightingQuantity { SightingQuantity.from(count: fish.count) }
 
-    /// The quantity over the image: a menu outside edit mode (where only the remove badge acts).
+    /// The quantity over the image, 6 pt from its corner: at least half the image's width,
+    /// growing with its text up to the image's width less the margins: a menu outside edit
+    /// mode (where only the remove badge acts).
     @ViewBuilder
-    private var quantityControl: some View {
+    private func quantityControl(imageWidth: CGFloat) -> some View {
+        let minWidth = imageWidth / 2
+        let maxWidth = max(minWidth, imageWidth - 12)
         if isEditing {
-            SightingQuantityCapsule(quantity: quantity)
+            // Sized to its content, as the menu sizes it outside edit mode (same bar in both).
+            SightingQuantityCapsule(quantity: quantity, minWidth: minWidth, maxWidth: maxWidth, isTall: true)
+                .fixedSize()
                 .padding(6)
         } else {
-            // 6 pt around the capsule, inside the image, is part of the tap target.
-            SightingQuantityMenu(quantity: quantity, padding: 6, onSet: onSetQuantity)
+            // The 6 pt around the bar, inside the image, is part of the tap target.
+            SightingQuantityMenu(quantity: quantity, padding: 6, minWidth: minWidth, maxWidth: maxWidth,
+                                 isTall: true, onSet: onSetQuantity)
         }
     }
 
@@ -71,7 +78,14 @@ struct SightingGridTile: View {
                 Color.clear
                     .aspectRatio(4 / 3, contentMode: .fit)
                     .overlay { SpeciesImageView(species: species, size: nil) }
-                    .overlay(alignment: .bottomLeading) { quantityControl }
+                    .overlay {
+                        // A bar half the image's width (wider when its text needs it), at the
+                        // bottom-leading corner.
+                        GeometryReader { proxy in
+                            quantityControl(imageWidth: proxy.size.width)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        }
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 Text(fish.displayName)
                     .font(.subheadline)
@@ -126,18 +140,44 @@ struct SightingGridTile: View {
     }
 }
 
-/// A sighting's quantity as a capsule ("Few"), readable over an image.
+/// A sighting's quantity as a solid capsule ("Few"), readable over an image: compact,
+/// sized to its text (list rows), or — a dive's tile — `isTall` (1.5 times the compact height)
+/// and at least `minWidth` wide, the text centred. With `maxWidth`, the capsule grows with its
+/// text up to that width, then the text shrinks (to 80 %) rather than run past it — the
+/// largest accessibility text sizes on a narrow tile.
 struct SightingQuantityCapsule: View {
     let quantity: SightingQuantity
+    var minWidth: CGFloat?
+    var maxWidth: CGFloat?
+    var isTall = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    // A solid fill that follows the appearance: white with dark text in light mode, near-black
+    // with white text in dark mode. Opaque, so every box looks the same whatever image is
+    // behind it (a translucent glass took on each photo's colour); a hairline edge keeps it
+    // apart from a background of the same tone.
+    private var isDark: Bool { colorScheme == .dark }
+    private var textColor: Color { isDark ? .white : .black }
+    private var fill: Color { isDark ? Color(white: 0.12) : .white }
+    private var edge: Color { isDark ? Color.white.opacity(0.2) : Color.black.opacity(0.12) }
+    /// Compact: 3 pt above and below the text (about 22 pt high); tall: about 33 pt.
+    private var verticalPadding: CGFloat { isTall ? 8.5 : 3 }
 
     var body: some View {
         Text(quantity.label)
             .font(.caption)
             .fontWeight(.bold)
+            .lineLimit(1)
+            .minimumScaleFactor(maxWidth == nil ? 1 : 0.8)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color.orange.opacity(0.2), in: Capsule())
-            .background(.regularMaterial, in: Capsule())
+            .padding(.vertical, verticalPadding)
+            .frame(minWidth: minWidth, maxWidth: maxWidth)
+            .foregroundStyle(textColor)
+            .background {
+                Capsule()
+                    .fill(fill)
+                    .overlay(Capsule().strokeBorder(edge, lineWidth: 1))
+            }
     }
 }
 
@@ -147,6 +187,10 @@ struct SightingQuantityCapsule: View {
 struct SightingQuantityMenu: View {
     let quantity: SightingQuantity
     var padding: CGFloat = 0
+    /// The tile's bar (`SightingQuantityCapsule.minWidth`, `maxWidth`, `isTall`).
+    var minWidth: CGFloat?
+    var maxWidth: CGFloat?
+    var isTall = false
     let onSet: (SightingQuantity) -> Void
 
     var body: some View {
@@ -158,7 +202,7 @@ struct SightingQuantityMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            SightingQuantityCapsule(quantity: quantity)
+            SightingQuantityCapsule(quantity: quantity, minWidth: minWidth, maxWidth: maxWidth, isTall: isTall)
                 .padding(padding)
                 .contentShape(Rectangle())
         }
