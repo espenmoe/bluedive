@@ -1208,7 +1208,7 @@ extension DiveDetailView {
             }
             Button("Cancel", role: .cancel) { }
         } message: { fish in
-            Text("Remove \(fish.name) from this dive?")
+            Text("Remove \(fish.displayName) from this dive?")
         }
     }
 
@@ -1254,7 +1254,7 @@ extension DiveDetailView {
                         #if os(macOS)
                         .buttonStyle(.plain)
                         #endif
-                        .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove %@", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes a filter chip, naming the specific value it removes"), fish.name)))
+                        .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove %@", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes a filter chip, naming the specific value it removes"), fish.displayName)))
                         .offset(x: 6, y: -6)
                         .transition(.scale.combined(with: .opacity))
                     }

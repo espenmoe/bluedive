@@ -180,12 +180,15 @@ struct StatisticsView: View {
         if Task.isCancelled { return }
 
         // --- Potentially heavy: species set and air consumption across all dives ---
-        var speciesNames = Set<String>()
+        // A linked sighting counts as its species, an unlinked one as its name ignoring case.
+        var speciesKeys = Set<SightingSpeciesKey>()
         var totalAirConsumed = 0.0
         let yieldInterval = 100
         for (idx, dive) in dives.enumerated() {
             if let fish = dive.seenFish {
-                for entry in fish { speciesNames.insert(entry.name) }
+                for entry in fish {
+                    if let key = SightingSpeciesKey(entry) { speciesKeys.insert(key) }
+                }
             }
             totalAirConsumed += dive.totalAirConsumption
             if idx % yieldInterval == yieldInterval - 1 {
@@ -193,7 +196,7 @@ struct StatisticsView: View {
                 if Task.isCancelled { return }
             }
         }
-        let totalSpeciesSeen = speciesNames.count
+        let totalSpeciesSeen = speciesKeys.count
 
         // --- Temperature extremes ---
         let tempSymbol = prefs.temperatureUnit.symbol

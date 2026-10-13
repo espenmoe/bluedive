@@ -108,9 +108,11 @@ struct DiverProfileView: View {
         Set(filteredDives.map { $0.siteName }).count
     }
 
+    /// Distinct species: a linked sighting counts as its species, an unlinked one as its name
+    /// ignoring case.
     private var totalCreatures: Int {
         Set(
-            filteredDives.flatMap { ($0.seenFish ?? []).map { $0.name } }
+            filteredDives.flatMap { ($0.seenFish ?? []).compactMap { SightingSpeciesKey($0) } }
         ).count
     }
 
@@ -119,13 +121,22 @@ struct DiverProfileView: View {
         return Calendar.current.dateComponents([.year], from: first, to: Date()).year ?? 0
     }
 
+    /// Most seen species, counted as `totalCreatures` is and named as on the dive (the linked
+    /// species' name, else the first recorded name).
     private var topCreatures: [(name: String, count: Int)] {
-        var counts: [String: Int] = [:]
+        var counts: [SightingSpeciesKey: (name: String, count: Int)] = [:]
         for dive in filteredDives {
-            for f in dive.seenFish ?? [] { counts[f.name, default: 0] += 1 }
+            for f in dive.seenFish ?? [] {
+                guard let key = SightingSpeciesKey(f) else { continue }
+                if let entry = counts[key] {
+                    counts[key] = (entry.name, entry.count + 1)
+                } else {
+                    counts[key] = (f.displayName, 1)
+                }
+            }
         }
-        return counts
-            .map { (name: $0.key, count: $0.value) }
+        return counts.values
+            .map { (name: $0.name, count: $0.count) }
             .sorted { $0.count > $1.count }
             .prefix(5)
             .map { $0 }

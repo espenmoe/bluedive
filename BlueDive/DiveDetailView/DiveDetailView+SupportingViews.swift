@@ -40,7 +40,7 @@ struct FishChipView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(fish.name)
+            Text(fish.displayName)
                 .font(.subheadline)
                 .fontWeight(.bold)
                 // Two lines reserved, so every chip in a grid row has the same height.
@@ -419,7 +419,8 @@ struct AddFishView: View {
 
                                 HStack {
                                     Spacer()
-                                    FishPreviewChip(name: fishName, quantity: quantity)
+                                    // As the dive will show it: the linked species' name.
+                                    FishPreviewChip(name: matchedSpecies?.displayName ?? fishName, quantity: quantity)
                                         .scaleEffect(1.1)
                                     Spacer()
                                 }
@@ -790,7 +791,8 @@ struct EditFishView: View {
 
                                 HStack {
                                     Spacer()
-                                    FishPreviewChip(name: fishName, quantity: quantity)
+                                    // As the dive will show it: the linked species' name.
+                                    FishPreviewChip(name: matchedSpecies?.displayName ?? fishName, quantity: quantity)
                                         .scaleEffect(1.1)
                                     Spacer()
                                 }

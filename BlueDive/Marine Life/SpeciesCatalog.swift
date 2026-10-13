@@ -74,6 +74,40 @@ extension Species {
     }
 }
 
+// MARK: - Sighting Names
+
+extension MarineSight {
+    /// Name shown for the sighting: its catalogue species' name when it is linked, so a
+    /// species renamed in the catalogue reads the same on every dive; else the name it was
+    /// recorded under. Display only: `name` keeps the recorded text (exports, search).
+    @MainActor
+    var displayName: String {
+        // A species deleted on another device, not merged into the context yet, is not read.
+        guard let species, !species.isDeleted, species.modelContext != nil else { return name }
+        return species.displayName
+    }
+}
+
+/// What a species count counts once: a linked sighting's species, else an unlinked
+/// sighting's recorded name ignoring case. Two spellings of one species ("truite arc-en-ciel"
+/// and "Truite arc-en-ciel", linked or not) are one species. Reads only the link's
+/// identifier, so counting faults no species.
+enum SightingSpeciesKey: Hashable {
+    case species(PersistentIdentifier)
+    case name(String)
+
+    /// Nil for an unlinked sighting without a name.
+    init?(_ sighting: MarineSight) {
+        if let species = sighting.species {
+            self = .species(species.persistentModelID)
+        } else {
+            let key = SpeciesCatalog.key(sighting.name)
+            guard !key.isEmpty else { return nil }
+            self = .name(key)
+        }
+    }
+}
+
 // MARK: - Species Metrics
 
 /// Statistics of a species over the dives it was seen on, calculated when displayed.
