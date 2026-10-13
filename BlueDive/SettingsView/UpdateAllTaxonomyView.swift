@@ -72,6 +72,12 @@ struct UpdateAllTaxonomyView: View {
                 Text("For species already linked to iNaturalist, fetches their common name in this language, so they are shown in it. Only the species' iNaturalist number and the language are sent; the names you entered are not changed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // `Species.displayName` shows iNaturalist's names only with the setting on.
+                if !UserPreferences.shared.useINaturalistCommonNames {
+                    Text("With “Use iNaturalist common names” off, species keep their names; only the classification names change.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if let namesPendingCount {
                     Text(verbatim: String(format: NSLocalizedString("Species without a name in %@: %@", bundle: .forAppLanguage(), value: "Species without a name in %@: %@", comment: "Number of linked species missing an iNaturalist common name in the common-names language; first %@ is the language name"), languageName, Double(namesPendingCount).localizedString(decimals: 0)))
                         .font(.subheadline)

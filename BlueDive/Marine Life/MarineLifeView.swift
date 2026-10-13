@@ -42,9 +42,10 @@ struct MarineLifeView: View {
     @State private var contentVersion = 0
     /// The statistics' inputs: sightingsVersion (any sighting saved — a quantity or
     /// species-link edit leaves the dive summaries unchanged — or a full rebuild),
-    /// contentVersion (catalogue actions here), the catalogue, the diver, the language.
+    /// contentVersion (catalogue actions here), the catalogue, the diver, the language, and the
+    /// names shown (`Species.displayName` follows the names language and the iNaturalist names setting).
     private var statsKey: String {
-        "\(store.sightingsVersion):\(contentVersion):\(catalogueHash):\(selectedDiver):\(UserPreferences.shared.languageMode.rawValue):\(UserPreferences.shared.taxonomyNameLanguage)"
+        "\(store.sightingsVersion):\(contentVersion):\(catalogueHash):\(selectedDiver):\(UserPreferences.shared.languageMode.rawValue):\(UserPreferences.shared.taxonomyNameLanguage):\(UserPreferences.shared.useINaturalistCommonNames)"
     }
     /// The inputs the shown statistics were computed for.
     @State private var computedStatsKey = ""

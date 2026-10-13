@@ -319,17 +319,24 @@ extension Species {
         return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 
-    /// Name shown for the species. When the stored common name is one of iNaturalist's
-    /// names, iNaturalist's name in the names language (`nameLanguageCode`) is shown if it was fetched;
-    /// otherwise — a name typed by the user or read from keywords — the stored name, as is.
-    /// Display only: `commonName` is never changed.
+    /// Name shown for the species. Display only: `commonName` is never changed.
     @MainActor
-    var displayName: String {
+    var displayName: String { displayName(forCommonName: commonName) }
+
+    /// Name shown for the species when its common name is `name` (the edit form passes the
+    /// name being typed). With "Use iNaturalist common names" on, a name that is exactly one of
+    /// iNaturalist's names is shown as iNaturalist's name in the names language
+    /// (`nameLanguageCode`), if it was fetched. Any other name — typed by the user, read from
+    /// keywords, or iNaturalist's name with its spelling corrected (even only its case) — is
+    /// shown as is, and so is every name with the setting off ("species keep the names they
+    /// were given").
+    @MainActor
+    func displayName(forCommonName name: String) -> String {
+        guard UserPreferences.shared.useINaturalistCommonNames else { return name }
         let names = inatCommonNames
-        guard !names.isEmpty,
-              names.values.contains(where: { SpeciesCatalog.key($0) == SpeciesCatalog.key(commonName) }),
+        guard names.values.contains(name),
               let localized = names[INaturalistService.nameLanguageCode], !localized.isEmpty
-        else { return commonName }
+        else { return name }
         return localized
     }
 }
@@ -458,14 +465,17 @@ enum INaturalistUpdater {
             }
         } else if !commonIsPlaceholder, usesINaturalistNames, previousTaxonID == nil,
                   let commonName, !commonKey.isEmpty, SpeciesCatalog.key(commonName) != commonKey,
-                  !names.values.contains(where: { SpeciesCatalog.key($0) == commonKey }),
+                  !names.values.contains(species.commonName),
                   others.species(named: commonName) == nil {
             // "Use iNaturalist common names", on a first link only (a species already linked
             // keeps its name): iNaturalist's name (in the names language, else English) becomes
             // the name, and the name the species had — typed or read from a keyword — is kept as
             // another name, so the sightings and keywords written with it are still recognised.
-            // Kept as is when it is already one of iNaturalist's names (shown in the names
-            // language anyway) or another species has iNaturalist's name.
+            // Kept as is when it is exactly one of iNaturalist's names (`displayName` shows it in
+            // the names language), when it is the names-language name in another case (the
+            // spelling it was given), or when another species has iNaturalist's name. A name
+            // that is another language's iNaturalist name in another case ("rainbow trout" from
+            // a keyword) is replaced: `displayName` only swaps exact names.
             var otherNames = species.altNames ?? []
             if !otherNames.contains(where: { SpeciesCatalog.key($0) == commonKey }) {
                 otherNames.append(species.commonName)

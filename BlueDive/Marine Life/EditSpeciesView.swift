@@ -92,6 +92,14 @@ struct EditSpeciesView: View {
 
     private var trimmedName: String { commonName.trimmingCharacters(in: .whitespacesAndNewlines) }
 
+    /// The name the app shows for the common name being typed, when it is not that name
+    /// (iNaturalist's name in the names language, see `Species.displayName(forCommonName:)`).
+    private var shownName: String? {
+        guard let species, !trimmedName.isEmpty else { return nil }
+        let shown = species.displayName(forCommonName: trimmedName)
+        return shown == trimmedName ? nil : shown
+    }
+
     /// Another species with the typed common or scientific name. Only a name changed here is
     /// checked: an edit that keeps a name another species already shares (e.g. two species
     /// created on two devices) is not blocked.
@@ -171,6 +179,11 @@ struct EditSpeciesView: View {
                         Text(verbatim: String(format: NSLocalizedString("%@ is already in the catalogue.", bundle: .forAppLanguage(), value: "%@ is already in the catalogue.", comment: "Warning in the species form: another species already has this name"), duplicate.commonName))
                             .font(.caption)
                             .foregroundStyle(.red)
+                    }
+                    if let shownName {
+                        Text(verbatim: String(format: NSLocalizedString("Shown as “%@”, iNaturalist's name in the common names language. A common name you change here is shown as typed.", bundle: .forAppLanguage(), value: "Shown as “%@”, iNaturalist's name in the common names language. A common name you change here is shown as typed.", comment: "Species form: the app shows iNaturalist's common name instead of the one in the field; %@ is that name"), shownName))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     if species == nil, prefs.fetchTaxonomyOnline {
                         Button {
