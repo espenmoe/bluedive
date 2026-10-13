@@ -82,14 +82,6 @@ struct DiveDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(DiveStore.self) var store
     @Query(sort: \GearGroup.name) var gearGroups: [GearGroup]
-    // Kept here (not in AddFishView/EditFishView) so the query stays active while DiveDetailView
-    // is on screen and does not activate/deactivate with the sheet, avoiding a re-fetch on dismiss.
-    @Query(sort: \MarineSight.name) private var allFish: [MarineSight]
-
-    private var existingFishNames: [String] {
-        var seen = Set<String>()
-        return allFish.compactMap { seen.insert($0.name).inserted ? $0.name : nil }
-    }
 
     @State var showEditSheet = false
     @State var showAddFish = false
@@ -131,6 +123,8 @@ struct DiveDetailView: View {
     @State var fishToDelete: MarineSight?
     @State var showDeleteFishAlert = false
     @State var fishToEdit: MarineSight?
+    /// Catalogue species opened from a sighting in the Marine Life grid, shown in a sheet.
+    @State var shownSpecies: Species?
     @State var selectedPhotoForPreview: IdentifiablePhotoData?
     @State var selectedTankIndex: Int = 0
     @State var showFullScreenSiteMap = false
@@ -463,11 +457,22 @@ struct DiveDetailView: View {
                 .standardSheetPresentation()
         }
         .sheet(isPresented: $showAddFish) {
-            AddFishView(dive: dive, fishNames: existingFishNames)
+            DiveMarineLifeSheet(dive: dive)
                 .standardSheetPresentation()
         }
+        // No marine life left (removed here or from the Marine Life sheet): edit mode ends, so
+        // the next sightings do not appear with remove badges.
+        .onChange(of: (dive.seenFish ?? []).isEmpty) { _, isEmpty in
+            if isEmpty { isEditingMarineLife = false }
+        }
+        // A sighting not in the catalogue: linked to a species (catalogue sightings open
+        // their species page and change their quantity from their tile).
         .sheet(item: $fishToEdit) { fish in
-            EditFishView(fish: fish, fishNames: existingFishNames)
+            LinkSightingSheet(fish: fish)
+                .standardSheetPresentation()
+        }
+        .sheet(item: $shownSpecies) { species in
+            SpeciesSheet(species: species, numberMap: speciesPageNumberMap, showDiveList: nil)
                 .standardSheetPresentation()
         }
         .sheet(isPresented: $showAddGear) {

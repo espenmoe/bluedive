@@ -556,6 +556,10 @@ extension ContentView {
                 nextAutoNumberByDiver[diverName] = highest + 1
             }
 
+            // The catalogue's names, indexed once for the whole import: an imported sighting is
+            // linked to the existing species known by its name (never to a new one).
+            let speciesIndex = SpeciesNameIndex(catalogue: (try? modelContext.fetch(FetchDescriptor<Species>())) ?? [])
+
             var batch = 0
             for index in indices {
                 guard parsed.indices.contains(index) else { continue }
@@ -566,7 +570,7 @@ extension ContentView {
                     autoNumber = current
                     nextAutoNumberByDiver[diverName] = current + 1
                 }
-                insertParsedDive(parsed[index], assignedDiveNumber: autoNumber, overrideDiverName: resolvedDiverNameByIndex[index], fileName: fileName, snapshotByID: &snapshotByID, snapshotByMatchKey: &snapshotByMatchKey, resolvedGearByID: &resolvedGearByID)
+                insertParsedDive(parsed[index], assignedDiveNumber: autoNumber, overrideDiverName: resolvedDiverNameByIndex[index], fileName: fileName, speciesIndex: speciesIndex, snapshotByID: &snapshotByID, snapshotByMatchKey: &snapshotByMatchKey, resolvedGearByID: &resolvedGearByID)
                 batch += 1
                 importProgressCurrent = batch
                 if batch % 25 == 0 {
@@ -896,7 +900,7 @@ extension ContentView {
     // MARK: - MacDive XML Import
     
     @MainActor
-    func insertParsedDive(_ diveData: BlueDiveGlobalData, assignedDiveNumber: Int? = nil, overrideDiverName: String? = nil, fileName: String, snapshotByID: inout [UUID: GearSnapshot], snapshotByMatchKey: inout [String: GearSnapshot], resolvedGearByID: inout [UUID: Gear]) {
+    func insertParsedDive(_ diveData: BlueDiveGlobalData, assignedDiveNumber: Int? = nil, overrideDiverName: String? = nil, fileName: String, speciesIndex: SpeciesNameIndex, snapshotByID: inout [UUID: GearSnapshot], snapshotByMatchKey: inout [String: GearSnapshot], resolvedGearByID: inout [UUID: Gear]) {
         // Convert MacDive samples to DiveProfilePoints
         let profilePoints = diveData.samples.map { sample in
             DiveProfilePoint(
@@ -1159,12 +1163,20 @@ extension ContentView {
         if newDive.usedGear == nil { newDive.usedGear = [] }
         newDive.usedGear!.append(contentsOf: equipmentToAdd)
 
-        // Create marine life sightings from imported data
+        // Create marine life sightings from imported data, under their imported names. A name
+        // the catalogue knows (any of a species' names, ignoring case) links the sighting to
+        // that species; an unknown name stays out of the catalogue (no species is created by
+        // an import — Marine Life → Build Catalogue from Sightings does that on request).
         for marineLifeData in diveData.marineLifeSeen {
             let marineSight = MarineSight(
                 name: marineLifeData.name,
                 count: marineLifeData.count
             )
+            // Not a species deleted on another device since the index was built.
+            if let species = speciesIndex.species(named: marineLifeData.name),
+               !species.isDeleted, species.modelContext != nil {
+                marineSight.species = species
+            }
             marineSight.dive = newDive
             if newDive.seenFish == nil { newDive.seenFish = [] }
             newDive.seenFish!.append(marineSight)

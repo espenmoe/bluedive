@@ -35,31 +35,139 @@ struct RatingStarsView: View {
     }
 }
 
-struct FishChipView: View {
+/// A sighting in the dive's Marine Life grid, laid out as a photo tile (`PhotoGridTile`): the
+/// linked species' image — a fish symbol for a sighting not in the catalogue or a species
+/// without an image — with the quantity over its corner, and the name shown for the sighting
+/// below. A tap calls `onOpen` (the dive decides: species page, or the sighting's editor);
+/// a long press toggles edit mode, where the remove badge appears. Outside edit mode the
+/// quantity is a menu that changes it in place (`onSetQuantity`).
+struct SightingGridTile: View {
     let fish: MarineSight
+    /// The linked species, if its page can be opened (resolved by the dive, as for the tap).
+    let species: Species?
+    let isEditing: Bool
+    let onOpen: () -> Void
+    let onToggleEditing: () -> Void
+    let onRemove: () -> Void
+    let onSetQuantity: (SightingQuantity) -> Void
+
+    private var quantity: SightingQuantity { SightingQuantity.from(count: fish.count) }
+
+    /// The quantity over the image: a menu outside edit mode (where only the remove badge acts).
+    @ViewBuilder
+    private var quantityControl: some View {
+        if isEditing {
+            SightingQuantityCapsule(quantity: quantity)
+                .padding(6)
+        } else {
+            // 6 pt around the capsule, inside the image, is part of the tap target.
+            SightingQuantityMenu(quantity: quantity, padding: 6, onSet: onSetQuantity)
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(fish.displayName)
-                .font(.subheadline)
-                .fontWeight(.bold)
-                // Two lines reserved, so every chip in a grid row has the same height.
-                .lineLimit(2, reservesSpace: true)
-                .multilineTextAlignment(.center)
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 4) {
+                Color.clear
+                    .aspectRatio(4 / 3, contentMode: .fit)
+                    .overlay { SpeciesImageView(species: species, size: nil) }
+                    .overlay(alignment: .bottomLeading) { quantityControl }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                Text(fish.displayName)
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    // Two lines reserved, so every tile in a grid row has the same height.
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { onOpen() }
+            .onLongPressGesture { onToggleEditing() }
+            // One VoiceOver element: the name, then the quantity and its range.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: fish.displayName))
+            .accessibilityValue(Text(verbatim: "\(quantity.label), \(quantity.rangeDescription)"))
+            .accessibilityHint(species != nil && !isEditing ? Text("Opens species details") : Text(verbatim: ""))
+            // In edit mode a linked sighting's tile does nothing (only its remove badge acts).
+            .accessibilityAddTraits(isEditing && species != nil ? [] : .isButton)
+            .accessibilityAction { onOpen() }
+            // Swipe up or down to change the quantity, as the menu does.
+            .accessibilityAdjustableAction { direction in
+                guard !isEditing else { return }
+                let options = SightingQuantity.allCases
+                guard let index = options.firstIndex(of: quantity) else { return }
+                switch direction {
+                case .increment where index < options.count - 1: onSetQuantity(options[index + 1])
+                case .decrement where index > 0: onSetQuantity(options[index - 1])
+                default: break
+                }
+            }
 
-            Text(SightingQuantity.from(count: fish.count).label)
-                .font(.caption)
-                .fontWeight(.bold)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Color.orange.opacity(0.2))
-                .clipShape(Capsule())
+            if isEditing {
+                Button(action: onRemove) {
+                    // Same geometry as the photo badge: 6 pt trailing (half of the 12 pt gap
+                    // to the next tile), inward over the tile, and nothing upward. 40 × 34 pt.
+                    TapTargetInset(top: 0, leading: 16, bottom: 16, trailing: 6) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 18))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .red)
+                    }
+                }
+                #if os(macOS)
+                .buttonStyle(.plain)
+                #endif
+                .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove %@", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes a filter chip, naming the specific value it removes"), fish.displayName)))
+                .offset(x: 6, y: -6)
+                .transition(.scale.combined(with: .opacity))
+            }
         }
-        // Fills its grid column.
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.1)))
+    }
+}
+
+/// A sighting's quantity as a capsule ("Few"), readable over an image.
+struct SightingQuantityCapsule: View {
+    let quantity: SightingQuantity
+
+    var body: some View {
+        Text(quantity.label)
+            .font(.caption)
+            .fontWeight(.bold)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.orange.opacity(0.2), in: Capsule())
+            .background(.regularMaterial, in: Capsule())
+    }
+}
+
+/// A sighting's quantity capsule that opens a menu of the four ranges, each with its range on
+/// the same line ("Few · 2 to 10", as the ranges read in the sighting editor; one line reads
+/// the same on every platform). `padding` around the capsule is part of the tap target.
+struct SightingQuantityMenu: View {
+    let quantity: SightingQuantity
+    var padding: CGFloat = 0
+    let onSet: (SightingQuantity) -> Void
+
+    var body: some View {
+        Menu {
+            Picker("Quantity", selection: Binding(get: { quantity }, set: { onSet($0) })) {
+                ForEach(SightingQuantity.allCases, id: \.self) { option in
+                    Text(verbatim: "\(option.label) · \(option.rangeDescription)").tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            SightingQuantityCapsule(quantity: quantity)
+                .padding(padding)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        // The current quantity and its range (a label set by the row replaces the capsule's text).
+        .accessibilityValue(Text(verbatim: "\(quantity.label), \(quantity.rangeDescription)"))
     }
 }
 
@@ -143,766 +251,6 @@ struct DetailCard: View {
         .padding(.vertical, 10)
         .background(Color.primary.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 15))
-    }
-}
-
-// MARK: - Add Fish View
-
-struct AddFishView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @Environment(DiveStore.self) private var store
-    @Bindable var dive: Dive
-    let fishNames: [String]
-
-    @State private var fishName = ""
-    @State private var quantity = SightingQuantity.single
-    @State private var showSuggestions = false
-    @FocusState private var isNameFocused: Bool
-    @Query(sort: \Species.commonName) private var catalogue: [Species]
-    /// Catalogue species chosen from the suggestions (cleared when the name is edited away from it).
-    @State private var pickedSpecies: Species?
-    /// Built once per catalogue change, so typing never scans the whole catalogue.
-    @State private var nameIndex = SpeciesNameIndex()
-    /// Suggestions for the current text, computed once per keystroke.
-    @State private var catalogueSuggestions: [Species] = []
-    @State private var nameSuggestions: [String] = []
-
-    /// Recomputes the suggestions for the typed text: up to 4 catalogue species whose common,
-    /// scientific or other name contains it, then earlier sighting names that are not
-    /// catalogue names.
-    private func updateSuggestions() {
-        let typed = fishName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !typed.isEmpty else {
-            catalogueSuggestions = []
-            nameSuggestions = []
-            return
-        }
-        catalogueSuggestions = nameIndex.species(containing: typed, excluding: pickedSpecies, limit: 4)
-        var names: [String] = []
-        let lowered = typed.lowercased()
-        for name in fishNames where names.count < 4 {
-            if name.localizedCaseInsensitiveContains(typed), name.lowercased() != lowered,
-               nameIndex.species(named: name) == nil {
-                names.append(name)
-            }
-        }
-        nameSuggestions = names
-    }
-
-    private var hasSuggestions: Bool { !catalogueSuggestions.isEmpty || !nameSuggestions.isEmpty }
-
-    /// The species the sighting will be linked to: the one picked, else the one known by the name.
-    private var matchedSpecies: Species? {
-        pickedSpecies ?? nameIndex.species(named: fishName)
-    }
-
-    /// Which catalogue species the sighting will be linked to, or that a new one is added.
-    @ViewBuilder
-    private var catalogueHint: some View {
-        let typed = fishName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty {
-            if let species = matchedSpecies {
-                Label {
-                    Text(verbatim: String(format: NSLocalizedString("Linked to %@ in the species catalogue.", bundle: .forAppLanguage(), value: "Linked to %@ in the species catalogue.", comment: "Add/Edit marine life: the sighting will be linked to this catalogue species"), species.displayName))
-                } icon: {
-                    Image(systemName: "books.vertical.fill")
-                        .foregroundStyle(.orange)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Label {
-                    Text(verbatim: String(format: NSLocalizedString("+ “%@” will be added to the species catalogue.", bundle: .forAppLanguage(), value: "+ “%@” will be added to the species catalogue.", comment: "Add/Edit marine life: a new catalogue species is created with this name"), typed))
-                } icon: {
-                    Image(systemName: "plus.circle")
-                        .foregroundStyle(.orange)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var isValidFish: Bool {
-        !fishName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Icon header
-                        VStack(spacing: 10) {
-                            ZStack {
-                                Circle()
-                                    .fill(.cyan.opacity(0.12))
-                                    .frame(width: 64, height: 64)
-                                Image(systemName: "fish.fill")
-                                    .font(.system(size: 28))
-                                    .foregroundStyle(.cyan)
-                            }
-                            Text("Marine Life Information")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 20)
-
-                        // Form fields
-                        VStack(spacing: 16) {
-                            // Marine Life name field
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Marine Life name")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                ZStack(alignment: .trailing) {
-                                    TextField("Marine Life name", text: $fishName)
-                                        .autocorrectionDisabled()
-                                        .platformTextInputAutocapitalization(.words)
-                                        .textFieldStyle(.plain)
-                                        .padding(10)
-                                        .padding(.trailing, fishName.isEmpty ? 10 : 32)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(Color.primary.opacity(0.06))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .stroke(Color.cyan.opacity(fishName.isEmpty ? 0 : 0.4), lineWidth: 1)
-                                        )
-                                        .focused($isNameFocused)
-                                        .onChange(of: fishName) {
-                                            // The pick stays while the text is still one of the
-                                            // picked species' names (any name it is known by).
-                                            if let picked = pickedSpecies,
-                                               nameIndex.species(named: fishName)?.persistentModelID != picked.persistentModelID {
-                                                pickedSpecies = nil
-                                            }
-                                            updateSuggestions()
-                                            showSuggestions = isNameFocused && hasSuggestions
-                                        }
-                                        .onChange(of: isNameFocused) {
-                                            if isNameFocused {
-                                                showSuggestions = hasSuggestions
-                                            } else {
-                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                                    showSuggestions = false
-                                                }
-                                            }
-                                        }
-                                    if !fishName.isEmpty {
-                                        Button {
-                                            fishName = ""
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                                .clearButtonTapTarget()
-                                                .accessibilityLabel(Text("Clear"))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .padding(.trailing, 8)
-                                    }
-                                }
-                                if showSuggestions && hasSuggestions {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        ForEach(catalogueSuggestions.prefix(4)) { species in
-                                            Button {
-                                                pickedSpecies = species
-                                                // The name as shown (in the app language).
-                                                fishName = species.displayName
-                                                showSuggestions = false
-                                            } label: {
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "books.vertical")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.orange)
-                                                    Text(verbatim: species.displayName)
-                                                        .foregroundStyle(.cyan)
-                                                        .lineLimit(1)
-                                                    if let scientific = species.scientificName, !scientific.isEmpty {
-                                                        Text(verbatim: scientific)
-                                                            .font(.caption)
-                                                            .italic()
-                                                            .foregroundStyle(.secondary)
-                                                            .lineLimit(1)
-                                                    }
-                                                }
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.vertical, 6)
-                                                .padding(.horizontal, 10)
-                                                .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                        ForEach(nameSuggestions.prefix(max(0, 4 - catalogueSuggestions.count)), id: \.self) { suggestion in
-                                            Button {
-                                                fishName = suggestion
-                                                showSuggestions = false
-                                            } label: {
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "magnifyingglass")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.secondary)
-                                                    Text(suggestion)
-                                                        .foregroundStyle(.cyan)
-                                                        .lineLimit(1)
-                                                }
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.vertical, 6)
-                                                .padding(.horizontal, 10)
-                                                // The whole suggestion responds, not only its text (a plain Button only responds
-                                                // where something is drawn).
-                                                .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    }
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.primary.opacity(0.06))
-                                    )
-                                }
-                            }
-
-                            catalogueHint
-
-                            // Quantity picker
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Quantity")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                                    ForEach(SightingQuantity.allCases, id: \.self) { q in
-                                        Button {
-                                            quantity = q
-                                        } label: {
-                                            VStack(spacing: 3) {
-                                                Text(q.label)
-                                                    .font(.subheadline)
-                                                    .fontWeight(.semibold)
-                                                Text(q.rangeDescription)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(quantity == q ? .cyan.opacity(0.8) : .secondary)
-                                            }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 10)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 10)
-                                                    .fill(quantity == q ? Color.cyan.opacity(0.18) : Color.primary.opacity(0.06))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 10)
-                                                    .stroke(quantity == q ? Color.cyan : Color.clear, lineWidth: 1.5)
-                                            )
-                                            .foregroundStyle(quantity == q ? .cyan : .primary)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-
-                        // Live preview
-                        if !fishName.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Overview")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal)
-
-                                HStack {
-                                    Spacer()
-                                    // As the dive will show it: the linked species' name.
-                                    FishPreviewChip(name: matchedSpecies?.displayName ?? fishName, quantity: quantity)
-                                        .scaleEffect(1.1)
-                                    Spacer()
-                                }
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.primary.opacity(0.04))
-                                )
-                                .padding(.horizontal)
-                            }
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
-                }
-
-                Divider()
-                    .overlay(Color.primary.opacity(0.08))
-
-                // Bottom buttons
-                HStack {
-                    Button("Cancel") { dismiss() }
-                        .keyboardShortcut(.escape, modifiers: [])
-                        .borderlessButton()
-
-                    Spacer()
-
-                    Button {
-                        addFish()
-                    } label: {
-                        Text("Add")
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(isValidFish ? .cyan : .cyan.opacity(0.3))
-                            )
-                            .foregroundStyle(isValidFish ? .black : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!isValidFish)
-                }
-                .padding()
-            }
-            .background(AppBackground().ignoresSafeArea())
-            .task(id: catalogue.count) {
-                nameIndex = SpeciesNameIndex(catalogue: catalogue)
-                updateSuggestions()
-            }
-            .navigationTitle("New Marine Life")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-
-        }
-    }
-
-    @MainActor
-    private func addFish() {
-        let trimmedName = fishName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let newFish = MarineSight(name: trimmedName, count: quantity.rawValue)
-
-        // Établir la relation bidirectionnelle
-        newFish.dive = dive
-        // Linked to the catalogue species (created when the name is new, together with the
-        // earlier sightings of that name).
-        newFish.species = matchedSpecies ?? SpeciesCatalog.findOrCreateForSighting(named: trimmedName, in: modelContext)
-
-        // Insérer dans le contexte SwiftData
-        modelContext.insert(newFish)
-
-        // Sauvegarder les changements
-        try? modelContext.save()
-        store.commit(dive, affects: .rowBadges)
-        // A species created under a scientific name is linked to iNaturalist when allowed.
-        if matchedSpecies == nil, let species = newFish.species {
-            INaturalistUpdater.updateInBackground([species], in: modelContext)
-        }
-
-        dismiss()
-    }
-}
-
-// MARK: - Edit Fish View
-
-struct EditFishView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @Environment(DiveStore.self) private var store
-    @Bindable var fish: MarineSight
-    let fishNames: [String]
-
-    @State private var fishName: String
-    @State private var quantity: SightingQuantity
-    @State private var showSuggestions = false
-    @FocusState private var isNameFocused: Bool
-    @Query(sort: \Species.commonName) private var catalogue: [Species]
-    /// Catalogue species chosen from the suggestions (cleared when the name is edited away from it).
-    @State private var pickedSpecies: Species?
-    /// Built once per catalogue change, so typing never scans the whole catalogue.
-    @State private var nameIndex = SpeciesNameIndex()
-    /// Suggestions for the current text, computed once per keystroke.
-    @State private var catalogueSuggestions: [Species] = []
-    @State private var nameSuggestions: [String] = []
-
-    init(fish: MarineSight, fishNames: [String] = []) {
-        self.fish = fish
-        self.fishNames = fishNames
-        _fishName = State(initialValue: fish.name)
-        _quantity = State(initialValue: SightingQuantity.from(count: fish.count))
-        _pickedSpecies = State(initialValue: fish.species)
-    }
-
-    /// Recomputes the suggestions for the typed text: up to 4 catalogue species whose common,
-    /// scientific or other name contains it, then earlier sighting names that are not
-    /// catalogue names.
-    private func updateSuggestions() {
-        let typed = fishName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !typed.isEmpty else {
-            catalogueSuggestions = []
-            nameSuggestions = []
-            return
-        }
-        catalogueSuggestions = nameIndex.species(containing: typed, excluding: pickedSpecies, limit: 4)
-        var names: [String] = []
-        let lowered = typed.lowercased()
-        for name in fishNames where names.count < 4 {
-            if name.localizedCaseInsensitiveContains(typed), name.lowercased() != lowered,
-               nameIndex.species(named: name) == nil {
-                names.append(name)
-            }
-        }
-        nameSuggestions = names
-    }
-
-    private var hasSuggestions: Bool { !catalogueSuggestions.isEmpty || !nameSuggestions.isEmpty }
-
-    /// The species the sighting will be linked to: the one picked, else the one known by the name.
-    private var matchedSpecies: Species? {
-        // The sighting keeps its species while its name is unchanged, even when that name is
-        // not (or no longer) one of the species' names.
-        pickedSpecies
-            ?? (SpeciesCatalog.key(fishName) == SpeciesCatalog.key(fish.name) ? fish.species : nil)
-            ?? nameIndex.species(named: fishName)
-    }
-
-    /// Which catalogue species the sighting will be linked to, or that a new one is added.
-    @ViewBuilder
-    private var catalogueHint: some View {
-        let typed = fishName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty {
-            if let species = matchedSpecies {
-                Label {
-                    Text(verbatim: String(format: NSLocalizedString("Linked to %@ in the species catalogue.", bundle: .forAppLanguage(), value: "Linked to %@ in the species catalogue.", comment: "Add/Edit marine life: the sighting will be linked to this catalogue species"), species.displayName))
-                } icon: {
-                    Image(systemName: "books.vertical.fill")
-                        .foregroundStyle(.orange)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else if SpeciesCatalog.key(typed) != SpeciesCatalog.key(fish.name) || fish.species != nil {
-                // Same rule as saveFish: an unlinked sighting saved under its own name stays
-                // out of the catalogue.
-                Label {
-                    Text(verbatim: String(format: NSLocalizedString("+ “%@” will be added to the species catalogue.", bundle: .forAppLanguage(), value: "+ “%@” will be added to the species catalogue.", comment: "Add/Edit marine life: a new catalogue species is created with this name"), typed))
-                } icon: {
-                    Image(systemName: "plus.circle")
-                        .foregroundStyle(.orange)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var isValidFish: Bool {
-        !fishName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        // Icon header
-                        VStack(spacing: 10) {
-                            ZStack {
-                                Circle()
-                                    .fill(.cyan.opacity(0.12))
-                                    .frame(width: 64, height: 64)
-                                Image(systemName: "fish.fill")
-                                    .font(.system(size: 28))
-                                    .foregroundStyle(.cyan)
-                            }
-                            Text("Marine Life Information")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 20)
-
-                        // Form fields
-                        VStack(spacing: 16) {
-                            // Marine Life name field
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Marine Life name")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                ZStack(alignment: .trailing) {
-                                    TextField("Marine Life name", text: $fishName)
-                                        .autocorrectionDisabled()
-                                        .platformTextInputAutocapitalization(.words)
-                                        .textFieldStyle(.plain)
-                                        .padding(10)
-                                        .padding(.trailing, fishName.isEmpty ? 10 : 32)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .fill(Color.primary.opacity(0.06))
-                                        )
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 10)
-                                                .stroke(Color.cyan.opacity(fishName.isEmpty ? 0 : 0.4), lineWidth: 1)
-                                        )
-                                        .focused($isNameFocused)
-                                        .onChange(of: fishName) {
-                                            // The pick stays while the text is still one of the
-                                            // picked species' names (any name it is known by).
-                                            if let picked = pickedSpecies,
-                                               nameIndex.species(named: fishName)?.persistentModelID != picked.persistentModelID {
-                                                pickedSpecies = nil
-                                            }
-                                            updateSuggestions()
-                                            showSuggestions = isNameFocused && hasSuggestions
-                                        }
-                                        .onChange(of: isNameFocused) {
-                                            if isNameFocused {
-                                                showSuggestions = hasSuggestions
-                                            } else {
-                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                                    showSuggestions = false
-                                                }
-                                            }
-                                        }
-                                    if !fishName.isEmpty {
-                                        Button {
-                                            fishName = ""
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                                .clearButtonTapTarget()
-                                                .accessibilityLabel(Text("Clear"))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .padding(.trailing, 8)
-                                    }
-                                }
-                                if showSuggestions && hasSuggestions {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        ForEach(catalogueSuggestions.prefix(4)) { species in
-                                            Button {
-                                                pickedSpecies = species
-                                                // The name as shown (in the app language).
-                                                fishName = species.displayName
-                                                showSuggestions = false
-                                            } label: {
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "books.vertical")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.orange)
-                                                    Text(verbatim: species.displayName)
-                                                        .foregroundStyle(.cyan)
-                                                        .lineLimit(1)
-                                                    if let scientific = species.scientificName, !scientific.isEmpty {
-                                                        Text(verbatim: scientific)
-                                                            .font(.caption)
-                                                            .italic()
-                                                            .foregroundStyle(.secondary)
-                                                            .lineLimit(1)
-                                                    }
-                                                }
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.vertical, 6)
-                                                .padding(.horizontal, 10)
-                                                .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                        ForEach(nameSuggestions.prefix(max(0, 4 - catalogueSuggestions.count)), id: \.self) { suggestion in
-                                            Button {
-                                                fishName = suggestion
-                                                showSuggestions = false
-                                            } label: {
-                                                HStack(spacing: 8) {
-                                                    Image(systemName: "magnifyingglass")
-                                                        .font(.caption2)
-                                                        .foregroundStyle(.secondary)
-                                                    Text(suggestion)
-                                                        .foregroundStyle(.cyan)
-                                                        .lineLimit(1)
-                                                }
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.vertical, 6)
-                                                .padding(.horizontal, 10)
-                                                // The whole suggestion responds, not only its text (a plain Button only responds
-                                                // where something is drawn).
-                                                .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    }
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.primary.opacity(0.06))
-                                    )
-                                }
-                            }
-
-                            catalogueHint
-
-                            // Quantity picker
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Quantity")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                                    ForEach(SightingQuantity.allCases, id: \.self) { q in
-                                        Button {
-                                            quantity = q
-                                        } label: {
-                                            VStack(spacing: 3) {
-                                                Text(q.label)
-                                                    .font(.subheadline)
-                                                    .fontWeight(.semibold)
-                                                Text(q.rangeDescription)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(quantity == q ? .cyan.opacity(0.8) : .secondary)
-                                            }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 10)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 10)
-                                                    .fill(quantity == q ? Color.cyan.opacity(0.18) : Color.primary.opacity(0.06))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 10)
-                                                    .stroke(quantity == q ? Color.cyan : Color.clear, lineWidth: 1.5)
-                                            )
-                                            .foregroundStyle(quantity == q ? .cyan : .primary)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-
-                        // Live preview
-                        if !fishName.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Overview")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal)
-
-                                HStack {
-                                    Spacer()
-                                    // As the dive will show it: the linked species' name.
-                                    FishPreviewChip(name: matchedSpecies?.displayName ?? fishName, quantity: quantity)
-                                        .scaleEffect(1.1)
-                                    Spacer()
-                                }
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color.primary.opacity(0.04))
-                                )
-                                .padding(.horizontal)
-                            }
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
-                }
-
-                Divider()
-                    .overlay(Color.primary.opacity(0.08))
-
-                // Bottom buttons
-                HStack {
-                    Button("Cancel") { dismiss() }
-                        .keyboardShortcut(.escape, modifiers: [])
-                        .borderlessButton()
-
-                    Spacer()
-
-                    Button {
-                        saveFish()
-                    } label: {
-                        Text("Save")
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(isValidFish ? .cyan : .cyan.opacity(0.3))
-                            )
-                            .foregroundStyle(isValidFish ? .black : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!isValidFish)
-                }
-                .padding()
-            }
-            .background(AppBackground().ignoresSafeArea())
-            .task(id: catalogue.count) {
-                nameIndex = SpeciesNameIndex(catalogue: catalogue)
-                updateSuggestions()
-            }
-            .navigationTitle("Edit Marine Life")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-        }
-    }
-
-    @MainActor
-    private func saveFish() {
-        let newName = fishName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let renamed = SpeciesCatalog.key(newName) != SpeciesCatalog.key(fish.name)
-        fish.name = newName
-        fish.count = quantity.rawValue
-        // Linked to the catalogue species. A new name creates it (with the earlier sightings
-        // of that name); a sighting recorded before the catalogue keeps no link when only its
-        // quantity changes, as the catalogue is built from sightings only on request.
-        var createdOrFound: Species?
-        if let matchedSpecies {
-            fish.species = matchedSpecies
-        } else if renamed || fish.species != nil {
-            createdOrFound = SpeciesCatalog.findOrCreateForSighting(named: newName, in: modelContext)
-            fish.species = createdOrFound
-        }
-        try? modelContext.save()
-        // The species created for the new name — or an existing one found under it — is
-        // looked up on iNaturalist when allowed (`needsLookup`/`lookupName(of:)` skip one
-        // already linked or looked up).
-        if let createdOrFound { INaturalistUpdater.updateInBackground([createdOrFound], in: modelContext) }
-        if let fishDive = fish.dive {
-            store.commit(fishDive, affects: .rowBadges)
-        } else {
-            // fish.dive is orphaned (shouldn't happen); full rebuild covers badges + filter options.
-            store.commitListRebuild()
-        }
-        dismiss()
-    }
-}
-
-// MARK: - Fish Preview Chip
-
-struct FishPreviewChip: View {
-    let name: String
-    let quantity: SightingQuantity
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(name)
-                .font(.subheadline)
-                .fontWeight(.bold)
-
-            Text(quantity.label)
-                .font(.caption)
-                .fontWeight(.bold)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .background(Color.cyan.opacity(0.2))
-                .clipShape(Capsule())
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Capsule().fill(Color.cyan.opacity(0.2)))
     }
 }
 

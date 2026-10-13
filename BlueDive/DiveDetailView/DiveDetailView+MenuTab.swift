@@ -1213,56 +1213,65 @@ extension DiveDetailView {
     }
 
     var fishGrid: some View {
-        // A grid, like the photos: a dive can list many critters.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], spacing: 12) {
+        // A grid of photo-style tiles, with the Photos tab's columns: a dive can list many
+        // critters. Lazy, so only the visible tiles load their species image.
+        LazyVGrid(columns: photoGridColumns, alignment: .leading, spacing: 12) {
             ForEach(dive.seenFish ?? []) { fish in
-                ZStack(alignment: .topTrailing) {
-                    FishChipView(fish: fish)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if !isEditingMarineLife {
-                                fishToEdit = fish
-                            }
+                let species = openableSpecies(of: fish)
+                SightingGridTile(
+                    fish: fish,
+                    species: species,
+                    isEditing: isEditingMarineLife,
+                    onOpen: {
+                        // A linked sighting opens its species page (nothing in edit mode, where
+                        // only its remove badge acts; its quantity has its own menu). Only a
+                        // sighting not in the catalogue opens the sighting editor. Not in the
+                        // swipe preview.
+                        guard !isSlidePreview else { return }
+                        if let species {
+                            if !isEditingMarineLife { shownSpecies = species }
+                        } else {
+                            fishToEdit = fish
                         }
-                        // One VoiceOver element (name and quantity) that opens the editor,
-                        // except in edit mode, where only the remove badge acts.
-                        .accessibilityElement(children: .combine)
-                        .accessibilityAddTraits(isEditingMarineLife ? [] : .isButton)
-                        .accessibilityAction {
-                            if !isEditingMarineLife { fishToEdit = fish }
+                    },
+                    onToggleEditing: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditingMarineLife.toggle()
                         }
-                        .onLongPressGesture {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isEditingMarineLife.toggle()
-                            }
-                        }
-                    if isEditingMarineLife {
-                        Button {
-                            fishToDelete = fish
-                            showDeleteFishAlert = true
-                        } label: {
-                            // Same geometry as the photo badge: 6 pt trailing (half of the
-                            // 12 pt gap to the next chip), inward over the chip, and
-                            // nothing upward. 40 × 34 pt.
-                            TapTargetInset(top: 0, leading: 16, bottom: 16, trailing: 6) {
-                                Image(systemName: "minus.circle.fill")
-                                    .font(.system(size: 18))
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(.white, .red)
-                            }
-                        }
-                        #if os(macOS)
-                        .buttonStyle(.plain)
-                        #endif
-                        .accessibilityLabel(Text(verbatim: String(format: NSLocalizedString("Remove %@", bundle: .forAppLanguage(), comment: "Accessibility label for a button that removes a filter chip, naming the specific value it removes"), fish.displayName)))
-                        .offset(x: 6, y: -6)
-                        .transition(.scale.combined(with: .opacity))
-                    }
-                }
+                    },
+                    onRemove: {
+                        fishToDelete = fish
+                        showDeleteFishAlert = true
+                    },
+                    onSetQuantity: { setQuantity($0, of: fish) }
+                )
             }
         }
         // Room for the remove badges, which stick out above the first row.
         .padding(.top, 6)
+    }
+
+    /// Changes a sighting's quantity from its tile (`MarineSight.setQuantity`: an exact count
+    /// stays when its range is chosen again).
+    func setQuantity(_ quantity: SightingQuantity, of fish: MarineSight) {
+        guard !isSlidePreview, fish.setQuantity(quantity) else { return }
+        try? modelContext.save()
+        store.commit(dive, affects: .rowBadges)
+    }
+
+    /// The catalogue species a sighting opens, unless it is not linked or its species was
+    /// deleted on another device and not merged yet (its attributes cannot be read).
+    func openableSpecies(of fish: MarineSight) -> Species? {
+        guard let species = fish.species, !species.isDeleted, species.modelContext != nil else { return nil }
+        return species
+    }
+
+    /// Dive numbers for the pages pushed from a species page (as Marine Life builds them).
+    /// Read only while a species page is shown.
+    var speciesPageNumberMap: [PersistentIdentifier: Int] {
+        let total = store.dives.count
+        return Dictionary(store.dives.enumerated().map { ($0.element.persistentModelID, total - $0.offset) },
+                          uniquingKeysWith: { first, _ in first })
     }
 
     // MARK: - All-Tanks Summary Helpers

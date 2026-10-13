@@ -70,24 +70,7 @@ struct PhotoSpeciesTagSheet: View {
                 }
 
                 Section {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                        formTextField("Search species", text: $search)
-                            .autocorrectionDisabled()
-                        if !search.isEmpty {
-                            Button {
-                                search = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                                    .clearButtonTapTarget()
-                                    .accessibilityLabel(Text("Clear"))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    SpeciesSearchField(text: $search)
                     if !trimmedSearch.isEmpty, !searchMatchesCatalogue {
                         Button {
                             createAndTag(named: trimmedSearch)
@@ -136,19 +119,7 @@ struct PhotoSpeciesTagSheet: View {
     }
 
     private func speciesLabel(_ species: Species) -> some View {
-        HStack(spacing: 12) {
-            SpeciesImageView(species: species, size: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: species.displayName)
-                    .foregroundStyle(.primary)
-                if let scientific = species.scientificName, !scientific.isEmpty {
-                    Text(verbatim: scientific)
-                        .font(.caption)
-                        .italic()
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
+        SpeciesRowLabel(species: species)
     }
 
     private func tag(_ species: Species) {

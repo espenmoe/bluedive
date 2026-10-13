@@ -86,6 +86,17 @@ extension MarineSight {
         guard let species, !species.isDeleted, species.modelContext != nil else { return name }
         return species.displayName
     }
+
+    /// Sets the quantity chosen from a quantity menu. Choosing the range the sighting is
+    /// already in changes nothing, so an exact count (e.g. 5, imported) is kept rather than
+    /// replaced by its range's value. Returns whether the count changed (the caller saves and
+    /// commits the dive with `.rowBadges`). Not saved.
+    @discardableResult
+    func setQuantity(_ quantity: SightingQuantity) -> Bool {
+        guard SightingQuantity.from(count: count) != quantity else { return false }
+        count = quantity.rawValue
+        return true
+    }
 }
 
 /// What a species count counts once: a linked sighting's species, else an unlinked
@@ -297,6 +308,11 @@ enum SpeciesCatalog {
 
     /// The unlinked sightings recorded under `name`, ignoring case and surrounding spaces.
     /// The store returns only the rows containing the name, so a large log is not read whole.
+    /// How many sightings not in the catalogue were recorded under `name` (ignoring case).
+    static func unlinkedSightingCount(named name: String, in context: ModelContext) -> Int {
+        unlinkedSightings(named: name, in: context).count
+    }
+
     private static func unlinkedSightings(named name: String, in context: ModelContext) -> [MarineSight] {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
@@ -310,6 +326,9 @@ enum SpeciesCatalog {
     // MARK: Build from sightings
 
     struct BuildPlan {
+        /// The diver whose recorded names are built from (`DiverFilter` rule; each name with all
+        /// its sightings); nil for every diver.
+        var diverName: String?
         /// Names that will become new species (most frequent spelling of each).
         var newSpeciesNames: [String] = []
         /// Sightings that will be linked (to new or existing species).
@@ -317,10 +336,10 @@ enum SpeciesCatalog {
     }
 
     /// What `buildFromSightings` would do, without changing anything.
-    static func planBuild(in context: ModelContext) -> BuildPlan {
-        let groups = unlinkedSightingGroups(in: context)
+    static func planBuild(in context: ModelContext, diverName: String? = nil) -> BuildPlan {
+        let groups = unlinkedSightingGroups(in: context, diverName: diverName)
         let index = SpeciesNameIndex(catalogue: (try? context.fetch(FetchDescriptor<Species>())) ?? [])
-        var plan = BuildPlan()
+        var plan = BuildPlan(diverName: diverName)
         for group in groups {
             plan.sightingsToLink += group.sights.count
             if index.species(named: group.name) == nil { plan.newSpeciesNames.append(group.name) }
@@ -329,13 +348,16 @@ enum SpeciesCatalog {
         return plan
     }
 
-    /// Links every sighting not yet in the catalogue to the species of the same name,
-    /// creating the species that do not exist (common name = the most frequent spelling).
+    /// Links every sighting not yet in the catalogue to the species of the same name, creating
+    /// the species that do not exist (common name = the most frequent spelling). With
+    /// `diverName`, only the names recorded on that diver's dives (`DiverFilter` rule), each
+    /// with all its sightings, any diver's: the catalogue is shared, and a name in it is
+    /// linked everywhere.
     /// Returns the number of species created and of sightings linked, and the species created (looked up on
     /// iNaturalist by the caller when lookups are on).
     @discardableResult
-    static func buildFromSightings(in context: ModelContext) -> (created: Int, linked: Int, newSpecies: [Species]) {
-        let groups = unlinkedSightingGroups(in: context)
+    static func buildFromSightings(in context: ModelContext, diverName: String? = nil) -> (created: Int, linked: Int, newSpecies: [Species]) {
+        let groups = unlinkedSightingGroups(in: context, diverName: diverName)
         // Each group has its own name (groups are keyed by name), so a species created here
         // never matches another group: the index of the existing catalogue is enough.
         let index = SpeciesNameIndex(catalogue: (try? context.fetch(FetchDescriptor<Species>())) ?? [])
@@ -379,9 +401,21 @@ enum SpeciesCatalog {
 
     /// Unlinked sightings grouped by name (ignoring case); each group is named by its most
     /// frequent spelling.
-    private static func unlinkedSightingGroups(in context: ModelContext) -> [SightingGroup] {
+    private static func unlinkedSightingGroups(in context: ModelContext, diverName: String? = nil) -> [SightingGroup] {
         let descriptor = FetchDescriptor<MarineSight>(predicate: #Predicate { $0.species == nil })
-        let sights = (try? context.fetch(descriptor)) ?? []
+        var sights = (try? context.fetch(descriptor)) ?? []
+        // One diver: the names recorded on that diver's dives (compared as `DiverFilter.apply`
+        // does; a sighting with no dive is nobody's) are the ones converted, but each name with
+        // all its sightings, whoever's dive they are on — as every other link is logbook-wide —
+        // so a name in the catalogue is never left unlinked on another diver's dives.
+        if let diverName {
+            let diverNames = Set(sights.compactMap { sight -> String? in
+                guard let dive = sight.dive, !dive.isDeleted, dive.modelContext != nil,
+                      dive.diverName.trimmingCharacters(in: .whitespaces) == diverName else { return nil }
+                return key(sight.name)
+            })
+            sights = sights.filter { diverNames.contains(key($0.name)) }
+        }
         var byKey: [String: (sights: [MarineSight], spellings: [String: Int])] = [:]
         for sight in sights {
             let trimmed = sight.name.trimmingCharacters(in: .whitespacesAndNewlines)

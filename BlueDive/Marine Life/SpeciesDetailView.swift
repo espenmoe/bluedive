@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import MapKit
+import ImageIO
 
 // MARK: - Species Detail
 
@@ -589,17 +590,134 @@ struct SpeciesDetailView: View {
     }
 }
 
+// MARK: - Species Sheet
+
+/// A species page presented as a sheet (from the Marine Life tab, or a sighting in a dive's
+/// Marine Life grid), with its own navigation for the dives it lists.
+struct SpeciesSheet: View {
+    let species: Species
+    let numberMap: [PersistentIdentifier: Int]
+    /// Shows the dive list, for "View Dives with This Critter": the sheet closes first. Nil
+    /// hides the button (from a dive, it would filter the list behind the dive). Set here,
+    /// not inherited: a sheet inherits the presenter's value on iOS only.
+    let showDiveList: ShowDiveListAction?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SpeciesDetailView(species: species, numberMap: numberMap)
+                #if os(iOS)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        closeToolbarButton { dismiss() }
+                    }
+                }
+                #endif
+                // macOS: the close button (and Escape), and `\.sheetDismiss`, so the page
+                // places its utility items for a sheet and the dives it opens get the button too.
+                .closeSheetButtonOnMac { dismiss() }
+        }
+        .environment(\.showDiveList, showDiveList.map { show in
+            ShowDiveListAction {
+                dismiss()
+                show()
+            }
+        })
+    }
+}
+
+// MARK: - Species Rows
+
+/// A species in a list row: its image, the name shown for it and its scientific name. With
+/// no species (a sighting not in the catalogue), the fish symbol, the recorded name and a
+/// "Not in the catalogue" note.
+struct SpeciesRowLabel: View {
+    let species: Species?
+    let name: String
+
+    init(species: Species) {
+        self.species = species
+        self.name = species.displayName
+    }
+
+    /// A sighting not in the catalogue, shown under the name it was recorded with.
+    init(recordedName: String) {
+        self.species = nil
+        self.name = recordedName
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SpeciesImageView(species: species, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: name)
+                    .foregroundStyle(.primary)
+                if let species {
+                    if let scientific = species.scientificName, !scientific.isEmpty {
+                        Text(verbatim: scientific)
+                            .font(.caption)
+                            .italic()
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("Not in the catalogue")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+/// The search field of a species list, with its clear button.
+struct SpeciesSearchField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            formTextField("Search species", text: $text)
+                .autocorrectionDisabled()
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .clearButtonTapTarget()
+                        .accessibilityLabel(Text("Clear"))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
 // MARK: - Species Image
 
 /// The species' featured image, or a fish symbol when it has none.
 struct SpeciesImageView: View {
     let species: Species?
-    let size: CGFloat
+    /// Side of the square image, clipped to rounded corners. Nil fills the space it is given
+    /// (a grid tile, which clips it), the image then scaled down to a tile's size when decoded.
+    let size: CGFloat?
     /// Decoded once per image record, off the main thread — not in `body`, which runs for
     /// every visible row on each keystroke of a search field.
     @State private var image: PlatformImage?
 
     var body: some View {
+        if let size {
+            content(symbolFont: .system(size: size * 0.4))
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.2))
+        } else {
+            content(symbolFont: .title2)
+        }
+    }
+
+    private func content(symbolFont: Font) -> some View {
         Group {
             if let image {
                 Image(platformImage: image)
@@ -609,13 +727,11 @@ struct SpeciesImageView: View {
                 ZStack {
                     Color.orange.opacity(0.15)
                     Image(systemName: "fish.fill")
-                        .font(.system(size: size * 0.4))
+                        .font(symbolFont)
                         .foregroundStyle(.orange)
                 }
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.2))
         .accessibilityHidden(true)
         .task(id: species?.image?.persistentModelID) {
             guard let species, !species.isDeleted, species.modelContext != nil,
@@ -623,7 +739,16 @@ struct SpeciesImageView: View {
                 image = nil
                 return
             }
-            let decoded = await Task.detached(priority: .userInitiated) { PlatformImage(data: data) }.value
+            let fillsTile = size == nil
+            let decoded = await Task.detached(priority: .userInitiated) { () -> PlatformImage? in
+                // A tile: a large image (a user's own, kept without a thumbnail when it is
+                // smaller than one) is scaled down, as dive photo tiles are, not decoded in full.
+                if fillsTile, let source = CGImageSourceCreateWithData(data as CFData, nil),
+                   let thumbnail = PhotoMetadataReader.thumbnailJPEG(of: source, maxPixelSize: 450, quality: 0.85) {
+                    return PlatformImage(data: thumbnail)
+                }
+                return PlatformImage(data: data)
+            }.value
             guard !Task.isCancelled else { return }
             image = decoded
         }

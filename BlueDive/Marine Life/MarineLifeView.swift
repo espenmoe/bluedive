@@ -16,9 +16,14 @@ struct MarineLifeView: View {
     /// The tab is shown. A tab stays loaded after its first visit: the statistics are
     /// recomputed only while it is shown (and when it is shown again, if anything changed).
     @State private var isShown = false
+    /// Catalogue species opened from the list, shown in a sheet.
+    @State private var shownSpecies: Species?
 
     // Cached aggregates
     @State private var cachedSpecies: [SpeciesAggregate] = []
+    /// Distinct names recorded on the dives shown (the selected diver's) that are no
+    /// catalogue species.
+    @State private var cachedNotInCatalogueCount = 0
     @State private var cachedTotalSpecies: Int = 0
     @State private var cachedTotalSightings: Int = 0
     @State private var cachedDivesWithLife: Int = 0
@@ -87,6 +92,21 @@ struct MarineLifeView: View {
     private var selectedDiverHasNoDive: Bool {
         !selectedDiver.isEmpty && !store.cachedSummaries.isEmpty
             && !store.cachedSummaries.contains { $0.diverName == selectedDiver }
+    }
+
+    /// The diver the catalogue actions (Build Catalogue from Sightings, Find Species in Photos)
+    /// work on, as the tab shows it; nil for every diver.
+    private var diverScope: String? { selectedDiver.isEmpty ? nil : selectedDiver }
+
+    /// The photos with IPTC text, of the selected diver's dives only when one is selected
+    /// (compared as `DiverFilter.apply` does; a photo with no dive is nobody's).
+    private var photosWithIPTCInScope: [DivePhoto] {
+        let photos = SpeciesPhotoMatcher.photosWithIPTC(in: modelContext)
+        guard let diverScope else { return photos }
+        return photos.filter { photo in
+            guard let dive = photo.dive, !dive.isDeleted, dive.modelContext != nil else { return false }
+            return dive.diverName.trimmingCharacters(in: .whitespaces) == diverScope
+        }
     }
 
     /// Changes when a catalogue species is added, removed or renamed, gets other names (its
@@ -294,6 +314,20 @@ struct MarineLifeView: View {
 
         if Task.isCancelled { return false }
 
+        // Names not in the catalogue for the banner, in the dives shown (the selected diver's,
+        // as "Add to Catalogue…" converts them), by the same species rule as above.
+        var namesNotInCatalogue = Set<String>()
+        for (idx, value) in values.enumerated() {
+            if idx % yieldInterval == yieldInterval - 1 {
+                await Task.yield()
+                if Task.isCancelled { return false }
+            }
+            let linked = value.speciesPID.flatMap { speciesInfo[$0] != nil ? $0 : nil }
+            let name = SpeciesCatalog.key(value.name)
+            if !name.isEmpty, (linked ?? speciesByName[name]) == nil { namesNotInCatalogue.insert(name) }
+        }
+
+        cachedNotInCatalogueCount = namesNotInCatalogue.count
         cachedSpecies = aggregates
         // Species actually seen: catalogue species never recorded on a dive are listed, not counted.
         cachedTotalSpecies = aggregates.filter { $0.entryCount > 0 }.count
@@ -360,6 +394,11 @@ struct MarineLifeView: View {
             .navigationDestination(for: SpeciesAggregate.self) { aggregate in
                 destination(for: aggregate)
             }
+            .sheet(item: $shownSpecies) { species in
+                // "View Dives with This Critter" closes the sheet, then shows the dive list.
+                SpeciesSheet(species: species, numberMap: cachedNumberMap, showDiveList: showDiveList)
+                    .standardSheetPresentation()
+            }
             .sheet(isPresented: $showAddSpecies) {
                 EditSpeciesView(species: nil)
                     .standardSheetPresentation()
@@ -396,7 +435,8 @@ struct MarineLifeView: View {
             ), presenting: buildPlan) { plan in
                 if plan.sightingsToLink > 0 {
                     Button("Build") {
-                        let result = SpeciesCatalog.buildFromSightings(in: modelContext)
+                        // The diver the plan was made for (the confirmed counts).
+                        let result = SpeciesCatalog.buildFromSightings(in: modelContext, diverName: plan.diverName)
                         buildResult = (result.created, result.linked)
                         contentVersion += 1
                         // Species created under a scientific name are linked to iNaturalist
@@ -467,13 +507,13 @@ struct MarineLifeView: View {
     private var catalogueMenu: some View {
         Menu {
             Button {
-                buildPlan = SpeciesCatalog.planBuild(in: modelContext)
+                buildPlan = SpeciesCatalog.planBuild(in: modelContext, diverName: diverScope)
             } label: {
                 Label("Build Catalogue from Sightings", systemImage: "books.vertical")
             }
             Button {
                 let proposals = SpeciesPhotoMatcher.proposals(
-                    for: SpeciesPhotoMatcher.photosWithIPTC(in: modelContext), catalogue: catalogue)
+                    for: photosWithIPTCInScope, catalogue: catalogue)
                 if proposals.isEmpty { showNoSpeciesInPhotos = true } else { speciesProposals = proposals }
             } label: {
                 Label("Find Species in Photos", systemImage: "text.viewfinder")
@@ -616,6 +656,12 @@ struct MarineLifeView: View {
                     taxonFilterBanner(rank: rank, name: name)
                 }
 
+                // Names of sightings not in the catalogue (imported, or recorded before it), in
+                // every diver's dives, as "Add to Catalogue…" converts them.
+                if cachedNotInCatalogueCount > 0 {
+                    notInCatalogueBanner(count: cachedNotInCatalogueCount)
+                }
+
                 if filteredSpecies.isEmpty {
                     VStack(spacing: 12) {
                         Text("No matches")
@@ -638,11 +684,21 @@ struct MarineLifeView: View {
                     let rows = filteredSpecies
                     LazyVStack(spacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, species in
-                            // The page is built only when the row is opened.
-                            NavigationLink(value: species) {
-                                speciesRow(index: index, species: species)
+                            // The page is built only when the row is opened: a catalogue
+                            // species in a sheet, sightings not in the catalogue pushed.
+                            if let id = species.speciesID {
+                                Button {
+                                    shownSpecies = liveSpecies(id)
+                                } label: {
+                                    speciesRow(index: index, species: species)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink(value: species) {
+                                    speciesRow(index: index, species: species)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
 
                             if index < rows.count - 1 {
                                 Divider()
@@ -659,6 +715,27 @@ struct MarineLifeView: View {
                 .fill(Color.platformSecondaryBackground)
         )
         .padding(.horizontal)
+    }
+
+    /// Names recorded on dives but not in the catalogue, with the action that adds them all
+    /// ("Build Catalogue from Sightings", which confirms with its own counts first).
+    private func notInCatalogueBanner(count: Int) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "books.vertical")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            // Plural in the app language; the number grouped for the OS region.
+            Text(verbatim: String.localizedStringWithFormat(NSLocalizedString("%lld names are not in the catalogue.", bundle: .forAppLanguage(), value: "%lld names are not in the catalogue.", comment: "Marine Life banner: number of sighting names recorded on dives that are not catalogue species"), count))
+                .font(.subheadline)
+            Spacer()
+            Button("Add to Catalogue…") {
+                buildPlan = SpeciesCatalog.planBuild(in: modelContext, diverName: diverScope)
+            }
+            .font(.caption.weight(.semibold))
+            .borderlessButton()
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.1)))
     }
 
     /// The active taxonomy filter, with the action that filters the dive log to it.
@@ -699,13 +776,10 @@ struct MarineLifeView: View {
         showDiveList?()
     }
 
+    /// The page pushed for sightings not in the catalogue (a catalogue species opens in a sheet).
     @ViewBuilder
     private func destination(for aggregate: SpeciesAggregate) -> some View {
-        if let id = aggregate.speciesID {
-            if let species = liveSpecies(id) {
-                SpeciesDetailView(species: species, numberMap: cachedNumberMap)
-            }
-        } else {
+        if aggregate.speciesID == nil {
             UnlinkedSightingsView(
                 name: aggregate.name,
                 // By identifier (no dive read), then only dives still in the store.
@@ -800,10 +874,14 @@ struct MarineLifeView: View {
                 .padding(.vertical, 4)
                 .background(Capsule().fill(.orange.opacity(0.15)))
 
-            Image(systemName: "chevron.right")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .accessibilityHidden(true)
+            // Only the rows that push a page (sightings not in the catalogue); a catalogue
+            // species opens in a sheet.
+            if species.speciesID == nil {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 4)
