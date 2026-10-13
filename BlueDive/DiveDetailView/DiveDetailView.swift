@@ -89,6 +89,11 @@ struct DiveDetailView: View {
     @State var selectedPhotos: [PhotosPickerItem] = []
     @State var prefs = UserPreferences.shared
     @State var selectedTab: DiveTab = .menu
+    /// Tab bar scroll state: whether tiles are hidden past each edge, and which tiles are
+    /// fully on screen (the arrows scroll to the first hidden tile in their direction).
+    @State private var tabBarHiddenLeading = false
+    @State private var tabBarHiddenTrailing = false
+    @State private var fullyVisibleTabs: Set<DiveTab> = []
     @State var isEditingEquipment = false
     @State var gearToDelete: Gear?
     @State var showDeleteGearAlert = false
@@ -652,10 +657,11 @@ struct DiveDetailView: View {
 
     private var diveTabBar: some View {
         // Scrollable tab bar, the selected tab marked in its colour.
-        ScrollViewReader { proxy in
+        let tabs = DiveTab.visibleCases.filter { $0 != .samples || prefs.showSamplesTab }
+        return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
-                    ForEach(DiveTab.visibleCases.filter { $0 != .samples || prefs.showSamplesTab }) { tab in
+                    ForEach(tabs) { tab in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 selectedTab = tab
@@ -689,17 +695,84 @@ struct DiveDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .id(tab)
+                        .onScrollVisibilityChange(threshold: 0.95) { isVisible in
+                            if isVisible {
+                                fullyVisibleTabs.insert(tab)
+                            } else {
+                                fullyVisibleTabs.remove(tab)
+                            }
+                        }
                     }
+                }
+            }
+            // Tiles hidden past an edge: the bar is wider than an iPhone screen.
+            .onScrollGeometryChange(for: [Bool].self) { geometry in
+                // The visible part of the content, in content coordinates (insets included).
+                let visible = geometry.visibleRect
+                return [visible.minX > 1, visible.maxX < geometry.contentSize.width - 1]
+            } action: { _, hidden in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    tabBarHiddenLeading = hidden[0]
+                    tabBarHiddenTrailing = hidden[1]
+                }
+            }
+            // Fade the tiles under each arrow so the bar reads as continuing past the edge.
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: tabBarHiddenLeading ? 36 : 0)
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: tabBarHiddenTrailing ? 36 : 0)
+                }
+            }
+            .overlay(alignment: .leading) {
+                if tabBarHiddenLeading {
+                    tabBarScrollArrow(systemName: "chevron.left") {
+                        // The last tile before the first fully visible one — or the first tile
+                        // itself when only its edge is cut off (it still counts as visible).
+                        guard let first = tabs.firstIndex(where: fullyVisibleTabs.contains) else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(tabs[max(first - 1, 0)], anchor: .center) }
+                    }
+                    .accessibilityLabel(Text("Scroll tabs left"))
+                    .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if tabBarHiddenTrailing {
+                    tabBarScrollArrow(systemName: "chevron.right") {
+                        // The first tile after the last fully visible one — or the last tile
+                        // itself when only its edge is cut off (it still counts as visible).
+                        guard let last = tabs.lastIndex(where: fullyVisibleTabs.contains) else { return }
+                        withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(tabs[min(last + 1, tabs.count - 1)], anchor: .center) }
+                    }
+                    .accessibilityLabel(Text("Scroll tabs right"))
+                    .transition(.opacity)
                 }
             }
             // Keep the selected tab in view: the bar is wider than an iPhone screen, and a dive
             // can open on a later tab (e.g. Marine Life, from a species).
-            .onAppear { proxy.scrollTo(selectedTab) }
+            .onAppear { proxy.scrollTo(selectedTab, anchor: .center) }
             .onChange(of: selectedTab) { _, tab in
-                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(tab) }
+                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(tab, anchor: .center) }
             }
         }
         .background(Color.primary.opacity(0.05))
+    }
+
+    /// A translucent edge arrow shown when more tab tiles are hidden in its direction.
+    private func tabBarScrollArrow(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                // A full-height translucent strip, the same height as the tab bar.
+                .frame(width: 28)
+                .frame(maxHeight: .infinity)
+                .background(.ultraThinMaterial)
+                .contentShape(Rectangle())
+        }
+        .borderlessButton()
     }
 
     // MARK: - Edit Sheet Router
