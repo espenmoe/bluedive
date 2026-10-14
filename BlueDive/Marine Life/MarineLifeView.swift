@@ -22,6 +22,12 @@ struct MarineLifeView: View {
     @State private var shownUnlinkedSpecies: SpeciesAggregate?
     /// The catalogue species whose row was swiped to delete, until confirmed.
     @State private var speciesToDelete: Species?
+    #if os(macOS)
+    /// Whether the species rows show their one-line version (wide window), reported by the
+    /// rows; the pinned column header is shown only then. Starts one-line: the main window opens
+    /// maximized.
+    @State private var speciesListLayout = OneLineRowsLayout()
+    #endif
 
     // Cached aggregates
     @State private var cachedSpecies: [SpeciesAggregate] = []
@@ -192,7 +198,7 @@ struct MarineLifeView: View {
     /// hidden otherwise).
     private var notLinkedFilterActive: Bool { notLinkedFilter && UserPreferences.shared.fetchTaxonomyOnline }
 
-    /// Read once per body pass (`speciesListSection`): it searches every name of every row.
+    /// Read once per body pass (`body`): it searches every name of every row.
     private var filteredSpecies: [SpeciesAggregate] {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
         let taxonIDs = taxonFilterParts == nil ? nil : cachedTaxonSpeciesIDs
@@ -354,32 +360,70 @@ struct MarineLifeView: View {
                 } else if !statsReady {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if cachedSpecies.isEmpty {
+                    ContentUnavailableView("No marine life recorded", systemImage: "fish")
                 } else {
-                    // A List (not a ScrollView) so species rows get the system swipe to delete
-                    // on every version, with touch, trackpad and mouse. The cards are drawn by
-                    // the rows themselves: the statistics on a clear row, the species card as
-                    // one slice per row, drawn by each row's content (see `speciesCardRow`).
+                    // Laid out like the Equipment tab: the statistics as a chip row, the
+                    // banners, then the species rows (with the Dives and Equipment row
+                    // background). A List (not a ScrollView) so species rows get the system
+                    // swipe to delete on every version, with touch, trackpad and mouse.
+                    // Filtered once per body pass: it searches every name of every row.
+                    let filteredSpecies = filteredSpecies
                     List {
-                        // Spacing as padding, not row insets: macOS ignores vertical row insets.
-                        heroStatsRow
-                            .padding(.bottom, 24)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                        statsChipRow
+                            .clearListRow()
 
-                        speciesListRows
+                        if let (rank, name) = taxonFilterParts {
+                            taxonFilterBanner(rank: rank, name: name)
+                                // The chip row's spacing under it too (macOS ignores vertical
+                                // row insets).
+                                .padding(.bottom, 4)
+                                .clearListRow()
+                        }
+
+                        // Names of sightings not in the catalogue (imported, or recorded before
+                        // it), in the dives shown, as "Add to Catalogue…" converts them.
+                        if cachedNotInCatalogueCount > 0 {
+                            notInCatalogueBanner(count: cachedNotInCatalogueCount)
+                                .padding(.bottom, 4)
+                                .clearListRow()
+                        }
+
+                        if filteredSpecies.isEmpty {
+                            noMatchesView
+                                .clearListRow()
+                        } else {
+                            speciesRowList(filteredSpecies)
+                        }
                     }
+                    #if os(macOS)
+                    // The Dives, Equipment and Documents lists' style, so the rows get the same
+                    // side insets and the one-line rows switch to stacked at the same window
+                    // width (`OneLineRowsLayout.rowWidth`); a `.plain` list gives its rows
+                    // 15 pt more.
+                    .listStyle(.sidebar)
+                    #else
                     .listStyle(.plain)
+                    #endif
                     .scrollContentBackground(.hidden)
                     .environment(\.defaultMinListRowHeight, 0)
                     .contentMargins(.bottom, 30, for: .scrollContent)
+                    #if os(macOS)
+                    // Column labels pinned to the top of the list, as in the Dives and
+                    // Equipment tabs; not over an empty list (no match).
+                    .pinnedColumnHeader(speciesListLayout, isShown: !filteredSpecies.isEmpty) {
+                        MarineLifeColumnHeader()
+                    }
+                    #else
                     .softTopScrollEdge()
+                    #endif
                     .opacity(appeared ? 1.0 : 0.0)
                     .offset(y: appeared ? 0 : 20)
                 }
             }
             // No title, as on the other tab roots (the tab bar names the tab).
             .navigationTitle("")
+            .searchable(text: $searchText, prompt: Text("Search marine life…"))
             .toolbar { toolbarContent }
             .background(AppBackground().ignoresSafeArea())
             .onChange(of: taxonFilter) { _, _ in rebuildTaxonSelection() }
@@ -590,49 +634,42 @@ struct MarineLifeView: View {
         notLinkedFilter = false
     }
 
-    // MARK: - Hero Stats Row
+    // MARK: - Statistics
 
-    private var heroStatsRow: some View {
-        HStack(spacing: 12) {
-            StatisticsHeroCard(
-                value: Double(cachedTotalSpecies).localizedString(decimals: 0),
-                label: "Species",
-                icon: "fish.fill",
-                color: .orange
-            )
-            StatisticsHeroCard(
-                value: Double(cachedTotalSightings).localizedString(decimals: 0),
-                label: "Sightings",
-                icon: "eye.fill",
-                color: .cyan
-            )
-            StatisticsHeroCard(
-                value: Double(cachedDivesWithLife).localizedString(decimals: 0),
-                label: "Dives",
-                icon: "figure.open.water.swim",
-                color: .green
-            )
+    /// Species, sightings and dives as small capsules, styled like the Equipment tab's
+    /// category chips (display only). One sideways-scrolling row, as there.
+    private var statsChipRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                MarineLifeStatChip(
+                    label: "Species",
+                    icon: "fish.fill",
+                    color: .orange,
+                    value: Double(cachedTotalSpecies).localizedString(decimals: 0)
+                )
+                MarineLifeStatChip(
+                    label: "Sightings",
+                    icon: "eye.fill",
+                    color: .cyan,
+                    value: Double(cachedTotalSightings).localizedString(decimals: 0)
+                )
+                MarineLifeStatChip(
+                    label: "Dives",
+                    icon: "figure.open.water.swim",
+                    color: .green,
+                    value: Double(cachedDivesWithLife).localizedString(decimals: 0)
+                )
+            }
+            .padding(.horizontal, 4)
         }
-        .padding(.horizontal)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Species List
 
-    /// The species card as List rows: its top part (title, search, banners or an empty state),
-    /// then one row per species, the last one closing the card.
-    @ViewBuilder
-    private var speciesListRows: some View {
-        let filteredSpecies = filteredSpecies
-        let showsRows = !cachedSpecies.isEmpty && !filteredSpecies.isEmpty
-        speciesListHeader(filteredSpecies: filteredSpecies)
-            .padding(.top, 16)
-            .padding(.bottom, showsRows ? 14 : 16)
-            .speciesCardRow(closesTop: true, closesBottom: !showsRows)
-
-        if showsRows {
-            ForEach(Array(filteredSpecies.enumerated()), id: \.element.id) { index, species in
-                speciesListRow(index: index, species: species, isLast: index == filteredSpecies.count - 1)
-            }
+    private func speciesRowList(_ filteredSpecies: [SpeciesAggregate]) -> some View {
+        ForEach(Array(filteredSpecies.enumerated()), id: \.element.id) { index, species in
+            speciesListRow(index: index, species: species, isLast: index == filteredSpecies.count - 1)
         }
     }
 
@@ -649,16 +686,10 @@ struct MarineLifeView: View {
             }
         } label: {
             speciesRow(index: index, species: species)
-                .overlay(alignment: .bottom) {
-                    if !isLast {
-                        Divider()
-                            .background(Color.primary.opacity(0.08))
-                    }
-                }
         }
         .buttonStyle(.plain)
-        .padding(.bottom, isLast ? 16 : 0)
-        .speciesCardRow(closesTop: false, closesBottom: isLast)
+        // Same row background as the Dives and Equipment tabs; no separator under the last row.
+        .listRowBackground(Color.primary.opacity(0.07), macSeparator: !isLast)
 
         if let id = species.speciesID {
             row.swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -674,99 +705,24 @@ struct MarineLifeView: View {
         }
     }
 
-    private func speciesListHeader(filteredSpecies: [SpeciesAggregate]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Image(systemName: "list.bullet")
-                    .foregroundStyle(.cyan)
-                    .accessibilityHidden(true)
-                Text("All Species")
-                    .font(.headline)
-                Spacer()
-                if !cachedSpecies.isEmpty {
-                    Text(verbatim: "\(Double(filteredSpecies.count).localizedString(decimals: 0))/\(Double(cachedSpecies.count).localizedString(decimals: 0))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+    /// No species matches the search or the filters: "No matches", with the action that clears
+    /// the filters when some are active. Not `ContentUnavailableView.search`, whose text is
+    /// SwiftUI's own and follows the system language, not the in-app language.
+    private var noMatchesView: some View {
+        ContentUnavailableView {
+            Label("No matches", systemImage: "magnifyingglass")
+        } actions: {
+            if activeFilterCount > 0 {
+                Button {
+                    withAnimation { resetFilters() }
+                } label: {
+                    Label("Clear filters", systemImage: "xmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.cyan)
                 }
-            }
-            .padding(.horizontal, 4)
-
-            if cachedSpecies.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "fish")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    Text("No marine life recorded")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 30)
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20)
-                        .accessibilityHidden(true)
-                    TextField(
-                        NSLocalizedString(
-                            "Search marine life…",
-                            bundle: Bundle.forAppLanguage(),
-                            comment: "Placeholder for marine life search field"
-                        ),
-                        text: $searchText
-                    )
-                    .textFieldStyle(.plain)
-                    if !searchText.isEmpty {
-                        Button {
-                            withAnimation { searchText = "" }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                                .clearButtonTapTarget()
-                                .accessibilityLabel(Text("Clear"))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.platformBackground)
-                .cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.1), lineWidth: 1))
-
-                if let (rank, name) = taxonFilterParts {
-                    taxonFilterBanner(rank: rank, name: name)
-                }
-
-                // Names of sightings not in the catalogue (imported, or recorded before it), in
-                // every diver's dives, as "Add to Catalogue…" converts them.
-                if cachedNotInCatalogueCount > 0 {
-                    notInCatalogueBanner(count: cachedNotInCatalogueCount)
-                }
-
-                if filteredSpecies.isEmpty {
-                    VStack(spacing: 12) {
-                        Text("No matches")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        if activeFilterCount > 0 {
-                            Button {
-                                withAnimation { resetFilters() }
-                            } label: {
-                                Label("Clear filters", systemImage: "xmark.circle.fill")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.cyan)
-                            }
-                            // Explicit on iOS too: in a List row, default-style buttons make the
-                            // whole row one tap target that fires them.
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 20)
-                }
+                // Explicit on iOS too: in a List row, default-style buttons make the
+                // whole row one tap target that fires them.
+                .buttonStyle(.borderless)
             }
         }
     }
@@ -856,83 +812,233 @@ struct MarineLifeView: View {
 
     @ViewBuilder
     private func speciesRow(index: Int, species: SpeciesAggregate) -> some View {
+        #if os(macOS)
+        // The Mac window is wide: one line with every value in a fixed-width column so the
+        // rows line up, falling back to the stacked iOS row when the window is too narrow.
+        // Each version tells the list which one is shown, so its column header is only there
+        // with one-line rows (`OneLineRowsLayout`).
+        ViewThatFits(in: .horizontal) {
+            wideSpeciesRow(index: index, species: species)
+                .reportsOneLine(true, to: speciesListLayout)
+                .reportsRowContentWidth(to: speciesListLayout)
+            stackedSpeciesRow(index: index, species: species)
+                .reportsOneLine(false, to: speciesListLayout)
+        }
+        #else
+        stackedSpeciesRow(index: index, species: species)
+        #endif
+    }
+
+    /// Image, then name / scientific name / dives + last seen / quantities, the dive count trailing.
+    private func stackedSpeciesRow(index: Int, species: SpeciesAggregate) -> some View {
         HStack(spacing: 14) {
-            if let id = species.speciesID, let catalogued = liveSpecies(id),
-               catalogued.hasFeaturedImage {
-                SpeciesImageView(species: catalogued, size: 32)
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(
-                            index == 0
-                                ? LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                : LinearGradient(colors: [.white.opacity(0.15), .white.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                        .frame(width: 32, height: 32)
-                    Image(systemName: "fish.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(index == 0 ? .primary : .secondary)
-                        .accessibilityHidden(true)
-                }
-            }
+            speciesImage(index: index, species: species, size: 44)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: species.name)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                speciesName(species)
 
-                if let scientific = species.scientificName, !scientific.isEmpty {
-                    Text(verbatim: scientific)
-                        .font(.caption2)
-                        .italic()
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else if species.speciesID == nil {
-                    Text("Not in the catalogue")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                        .lineLimit(1)
-                }
+                speciesSubtitle(species)
 
                 HStack(spacing: 6) {
-                    Text(verbatim: species.diveCount == 1
-                        ? NSLocalizedString("1 dive", bundle: .forAppLanguage(), value: "1 dive", comment: "Single dive count")
-                        : String(format: NSLocalizedString("%@ dives", bundle: .forAppLanguage(), value: "%@ dives", comment: "Plural dive count goal label"), Double(species.diveCount).localizedString(decimals: 0)))
+                    Text(verbatim: diveCountText(species))
                     if let last = species.lastSeen {
                         Text(verbatim: "·")
-                        Text(last, format: .dateTime.month(.abbreviated).year().locale(locale))
+                        lastSeenText(last)
                     }
                 }
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
                 let summary = quantitySummary(for: species)
                 if !summary.isEmpty {
-                    Text(verbatim: summary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    quantityText(summary)
                 }
             }
 
             Spacer()
 
-            Text(verbatim: Double(species.diveCount).localizedString(decimals: 0))
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(.orange.opacity(0.15)))
+            diveCountBadge(species)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+
+    #if os(macOS)
+    /// One line (macOS): image, name, scientific name, last seen, quantities and dive count,
+    /// each in its own fixed-width column (`MarineLifeColumns`, shared with
+    /// `MarineLifeColumnHeader` so the labels stay over their values).
+    private func wideSpeciesRow(index: Int, species: SpeciesAggregate) -> some View {
+        HStack(spacing: MarineLifeColumns.spacing) {
+            speciesImage(index: index, species: species, size: MarineLifeColumns.image)
+
+            speciesName(species)
+                .frame(minWidth: MarineLifeColumns.name, idealWidth: MarineLifeColumns.name,
+                       maxWidth: .infinity, alignment: .leading)
+
+            // ZStack, not Group: a Group's frame applies to its children, so an empty value would
+            // drop the column and shift the ones before it.
+            ZStack { speciesSubtitle(species) }
+                .frame(width: MarineLifeColumns.scientificName, alignment: .leading)
+
+            ZStack {
+                if let last = species.lastSeen {
+                    lastSeenText(last)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: MarineLifeColumns.lastSeen, alignment: .leading)
+
+            ZStack {
+                let summary = quantitySummary(for: species)
+                if !summary.isEmpty {
+                    quantityText(summary)
+                }
+            }
+            .frame(width: MarineLifeColumns.quantities, alignment: .leading)
+
+            // The stacked row's "N dives" text is this column; VoiceOver reads it in full.
+            diveCountBadge(species)
+                .accessibilityLabel(Text(verbatim: diveCountText(species)))
+                .frame(width: MarineLifeColumns.dives, alignment: .trailing)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        // Same natural width as the Dives, Equipment and Documents rows.
+        .oneLineRowWidth(columnsWidth: MarineLifeColumns.rowWidth)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+    #endif
+
+    // Row parts, shared by the stacked and one-line rows.
+
+    /// The species' featured image, or a fish placeholder (highlighted for the first row), `size`
+    /// points wide: 44 in the stacked row and 32 in the one-line row, as the Dives, Equipment and
+    /// Documents rows' icons.
+    @ViewBuilder
+    private func speciesImage(index: Int, species: SpeciesAggregate, size: CGFloat) -> some View {
+        if let id = species.speciesID, let catalogued = liveSpecies(id),
+           catalogued.hasFeaturedImage {
+            SpeciesImageView(species: catalogued, size: size)
+        } else {
+            ZStack {
+                Circle()
+                    .fill(
+                        index == 0
+                            ? LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            : LinearGradient(colors: [.white.opacity(0.15), .white.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    .frame(width: size, height: size)
+                Image(systemName: "fish.fill")
+                    // 12 pt in a 32 pt circle, the same proportion at any size.
+                    .font(.system(size: (size * 0.375).rounded(), weight: .bold))
+                    .foregroundStyle(index == 0 ? .primary : .secondary)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private func speciesName(_ species: SpeciesAggregate) -> some View {
+        Text(verbatim: species.name)
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+    }
+
+    /// The scientific name, or "Not in the catalogue" for sightings with no catalogue species.
+    @ViewBuilder
+    private func speciesSubtitle(_ species: SpeciesAggregate) -> some View {
+        if let scientific = species.scientificName, !scientific.isEmpty {
+            Text(verbatim: scientific)
+                .font(.caption)
+                .italic()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        } else if species.speciesID == nil {
+            Text("Not in the catalogue")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+        }
+    }
+
+    private func diveCountText(_ species: SpeciesAggregate) -> String {
+        species.diveCount == 1
+            ? NSLocalizedString("1 dive", bundle: .forAppLanguage(), value: "1 dive", comment: "Single dive count")
+            : String(format: NSLocalizedString("%@ dives", bundle: .forAppLanguage(), value: "%@ dives", comment: "Plural dive count goal label"), Double(species.diveCount).localizedString(decimals: 0))
+    }
+
+    private func lastSeenText(_ date: Date) -> Text {
+        Text(date, format: .dateTime.month(.abbreviated).year().locale(locale))
+    }
+
+    private func quantityText(_ summary: String) -> some View {
+        Text(verbatim: summary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    private func diveCountBadge(_ species: SpeciesAggregate) -> some View {
+        Text(verbatim: Double(species.diveCount).localizedString(decimals: 0))
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(.orange.opacity(0.15)))
+    }
 }
+
+#if os(macOS)
+// MARK: - Marine Life List Columns (macOS)
+
+/// Column widths of the one-line species row on macOS, shared by `MarineLifeView`'s row and
+/// `MarineLifeColumnHeader` so the header labels stay aligned with the values.
+enum MarineLifeColumns {
+    static let spacing: CGFloat = 12
+    static let image: CGFloat = 32
+    /// Minimum (and ideal) width of the flexible name column.
+    static let name: CGFloat = 200
+    static let scientificName: CGFloat = 200
+    static let lastSeen: CGFloat = 130
+    static let quantities: CGFloat = 240
+    static let dives: CGFloat = 90
+
+    /// Width of the one-line row: every column, the spacing between them and the row's
+    /// horizontal padding (960 pt).
+    static let rowWidth: CGFloat = image + name + scientificName + lastSeen + quantities + dives
+        + spacing * 5 + 8
+}
+
+/// Column labels over the one-line species rows (macOS), pinned to the top of the list with
+/// `pinnedColumnHeader`, which shows them only while the rows are one-line (`OneLineRowsLayout`).
+struct MarineLifeColumnHeader: View {
+    var body: some View {
+        ColumnHeaderRowContent {
+            HStack(spacing: MarineLifeColumns.spacing) {
+                Color.clear.frame(width: MarineLifeColumns.image, height: 0)
+                Text("Name").columnHeaderLabel()
+                    .frame(minWidth: MarineLifeColumns.name, idealWidth: MarineLifeColumns.name,
+                           maxWidth: .infinity, alignment: .leading)
+                Text("Scientific Name").columnHeaderLabel()
+                    .frame(width: MarineLifeColumns.scientificName, alignment: .leading)
+                Text("Last Seen").columnHeaderLabel()
+                    .frame(width: MarineLifeColumns.lastSeen, alignment: .leading)
+                Text("Quantities").columnHeaderLabel()
+                    .frame(width: MarineLifeColumns.quantities, alignment: .leading)
+                Text("Dives").columnHeaderLabel()
+                    .frame(width: MarineLifeColumns.dives, alignment: .trailing)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+#endif
 
 // MARK: - Unlinked Sightings
 
@@ -1297,30 +1403,44 @@ private extension View {
         }
     }
 
-    /// A List row that is one slice of the Marine Life species card: inset 16 pt from the
-    /// edges like the statistics (content 16 pt further in), no list separator, and a
-    /// background rounded only where the slice opens or closes the card. The slice is drawn
-    /// by the row's content, not `listRowBackground`: on macOS the row background is wider
-    /// than the content (the list adds its own content inset), so the card would not line
-    /// up with the statistics.
-    func speciesCardRow(closesTop: Bool, closesBottom: Bool) -> some View {
-        let top: CGFloat = closesTop ? 20 : 0
-        let bottom: CGFloat = closesBottom ? 20 : 0
-        return self
-            .padding(.horizontal, 16)
-            .background(
-                UnevenRoundedRectangle(
-                    topLeadingRadius: top,
-                    bottomLeadingRadius: bottom,
-                    bottomTrailingRadius: bottom,
-                    topTrailingRadius: top
-                )
-                .fill(Color.platformSecondaryBackground)
-            )
-            .padding(.horizontal, 16)
-            .listRowInsets(EdgeInsets())
+    /// A List row drawn on the tab background: no row background or separator.
+    func clearListRow() -> some View {
+        self
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
+    }
+}
+
+/// One statistic (icon, label, value in a pill), styled like an unselected Equipment category
+/// chip (`CategoryFilterChip`) but not a button: it only shows the number.
+private struct MarineLifeStatChip: View {
+    let label: LocalizedStringKey
+    let icon: String
+    let color: Color
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(color)
+                .accessibilityHidden(true)
+
+            Text(label)
+                .font(.subheadline)
+
+            Text(verbatim: value)
+                .font(.caption2)
+                .fontWeight(.bold)
+                .monospacedDigit()
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.gray.opacity(0.3)))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(Color.gray.opacity(0.1)))
+        .accessibilityElement(children: .combine)
     }
 }
 

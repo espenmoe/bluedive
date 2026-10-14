@@ -597,11 +597,11 @@ struct WidthAdaptiveLayout<Wide: View, Narrow: View>: View {
 
 #if os(macOS)
 /// Whether a list's rows show their one-line (column) version (macOS wide-window layouts:
-/// Dives, Equipment, Documents). Owned by the list's view in `@State` and put in the List's
-/// environment; each row writes it from the version `ViewThatFits` shows, so the list shows its
-/// column header — pinned above the list (`pinnedColumnHeader`) or as a row (`columnHeaderRow`) —
-/// only with one-line rows (no empty header in the stacked layout). Rows only write it, never
-/// read it in `body`, so a change redraws the header, not the rows. A stable
+/// Dives, Equipment, Documents, Marine Life). Owned by the list's view in `@State` and put in
+/// the List's environment; each row writes it from the version `ViewThatFits` shows, so the
+/// list shows its column header — pinned above the list (`pinnedColumnHeader`) or as a row
+/// (`columnHeaderRow`) — only with one-line rows (no empty header in the stacked layout).
+/// Rows only write it, never read it in `body`, so a change redraws the header, not the rows. A stable
 /// reference rather than a Binding, which would change on every parent redraw.
 @Observable final class OneLineRowsLayout {
     var isOneLine = true
@@ -611,11 +611,13 @@ struct WidthAdaptiveLayout<Wide: View, Narrow: View>: View {
     /// A width rather than a position: a row slides sideways while it is swiped, its width does not.
     var rowContentWidth: CGFloat = 0
 
-    /// Natural width of every one-line row and column header (Dives, Equipment, Documents):
-    /// the widest one-line row, the Dives row (`DiveListColumns`: 1 012 pt). `ViewThatFits`
-    /// switches a row to its stacked version when the List gives it less than its natural width,
-    /// so the same value makes all three lists switch at the same window width (their List row
-    /// insets are the same, 16 pt each side). Raise it if a one-line row gets wider than this.
+    /// Natural width of every one-line row and column header (Dives, Equipment, Documents,
+    /// Marine Life): the widest one-line row, the Dives row (`DiveListColumns`: 1 012 pt).
+    /// `ViewThatFits` switches a row to its stacked version when the List gives it less than its
+    /// natural width, so the same value makes all the lists switch at the same window width, as
+    /// long as their rows get the same width: use the `.sidebar` list style on macOS (16 pt row
+    /// insets each side). A `.plain` list gives its rows 15 pt more (measured), so its rows
+    /// would switch at a narrower window. Raise it if a one-line row gets wider than this.
     static let rowWidth: CGFloat = 1012
 }
 

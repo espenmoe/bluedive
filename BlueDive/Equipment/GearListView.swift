@@ -419,8 +419,14 @@ struct GearListView: View {
         )
     }
 
+    /// Not `ContentUnavailableView.search`, whose text is SwiftUI's own and follows the system
+    /// language, not the in-app language; worded as the Dives tab's "No dives found".
     private var noResultsView: some View {
-        ContentUnavailableView.search(text: searchText)
+        ContentUnavailableView(
+            "No equipment found",
+            systemImage: "magnifyingglass",
+            description: Text("Try other keywords or modify the filters.")
+        )
     }
 
     private var noGearForDiverView: some View {
