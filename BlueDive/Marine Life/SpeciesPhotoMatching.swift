@@ -62,26 +62,20 @@ enum ScientificNameDetector {
         let scientificName: String
         /// The common name written with it ("European Lobster"), if any.
         let commonNameHint: String?
-        /// Written with parentheses (the convention for a scientific name and its common
-        /// name). A keyword without parentheses ("Homarus gammarus") is only a candidate: it
-        /// counts when the photo's other keywords confirm it, or when it names a species
-        /// already in the catalogue.
-        var inParentheses = true
-        /// The photo's other keywords confirm the name is scientific, as in a Lightroom keyword
-        /// hierarchy: the genus is a keyword ("Gymnothorax", "Barracuda (Sphyraena)"), or a
-        /// keyword is a Latin name of a higher rank ("Myliobatidae").
-        var genusIsKeyword = false
-        /// Clearly a scientific name: in parentheses, or confirmed by its own genus keyword
-        /// (not only by a family keyword). Only these start switched on as new species in the
-        /// batch import summary; the others are offered switched off.
-        var isConfident = false
+        /// A keyword that is the name alone ("Homarus gammarus"), without parentheses and
+        /// without its genus as another keyword: it only looks like a scientific name, so it is
+        /// never stored as one. The species takes it as its common name, and an exact
+        /// iNaturalist match fills the scientific name (`INaturalistUpdater.lookupName(of:)`).
+        var isBare = false
     }
 
-    /// Family, order and class endings that ordinary words do not have. A keyword with one of
-    /// them ("Myliobatidae", "Perciformes") confirms the photo's other Latin-looking keywords;
-    /// shorter rank endings ("-ia", "-ata") also end place names ("Indonesia", "Croatia").
+    /// Family, order and class endings that ordinary words do not have ("Myliobatidae",
+    /// "Perciformes"); shorter rank endings ("-ia", "-ata") also end place names ("Indonesia",
+    /// "Croatia").
     private static let confirmingRankSuffixes = ["idae", "inae", "iformes", "oidea", "aceae", "phyceae"]
 
+    /// A keyword that is a Latin name of a family or order ("Octopodidae", "Perciformes"), as
+    /// in a keyword hierarchy.
     private static func isConfirmingRankName(_ word: String) -> Bool {
         guard word.first?.isUppercase == true, !word.contains(" ") else { return false }
         let lower = word.lowercased()
@@ -126,8 +120,10 @@ enum ScientificNameDetector {
         return !epithets.contains { !$0.hasSuffix(".") && OrdinaryWords.contains($0) }
     }
 
-    /// Endings of Latin species epithets ("birostris", "gammarus", "mydas", "niger"). Asked
-    /// only of a keyword confirmed by a family keyword alone, a weak sign on its own.
+    /// Endings of Latin species epithets ("birostris", "gammarus", "mydas", "niger"). A weak
+    /// sign on its own: asked of a name alone in a keyword without its genus keyword, to tell
+    /// which side of a parenthesised pair is the scientific name when both could be, and to
+    /// keep epithets that are also English words ("niger", "maxima").
     private static let latinEpithetEndings = ["us", "um", "a", "ae", "is", "i", "ii", "x", "os", "on", "ys",
                                               "as", "er", "es", "ns", "ps", "o", "or", "ar"]
 
@@ -137,11 +133,36 @@ enum ScientificNameDetector {
         }
     }
 
+    /// Whether an epithet of `name` is an ordinary English word without a Latin ending: "Palancar
+    /// reef", "Ikelite housing", "Spotfin butterflyfish" are no scientific names, while "Sparisoma
+    /// viride", "Coris gaimard" (not English words) and "Gobius niger" (a Latin ending) are.
+    private static func hasCommonWordEpithet(_ name: String) -> Bool {
+        name.split(separator: " ").dropFirst().map(String.init).contains { word in
+            word != "×" && !word.hasSuffix(".") && OrdinaryWords.contains(word)
+                && !latinEpithetEndings.contains { word.lowercased().hasSuffix($0) }
+        }
+    }
+
+    /// Whether the first word of `name` (its genus, if it is a scientific name) is an ordinary
+    /// English word ("Blue chromis"), as genera rarely are.
+    private static func startsWithOrdinaryWord(_ name: String) -> Bool {
+        name.split(separator: " ").first.map { OrdinaryWords.contains(String($0)) } ?? false
+    }
+
     /// Genus (capitalised), then one or two lower-case epithets, or "sp."/"spp.".
     private static let namePattern = #"[A-Z][a-z]+(?:\s+(?:×\s*)?[a-z][a-z\-]+){1,2}|[A-Z][a-z]+\s+spp?\."#
     /// Any text in parentheses, with the text before it.
     private static let parenthesised = try! NSRegularExpression(pattern: #"([^()]*?)\(\s*([^()]+?)\s*\)"#)
     private static let wholeName = try! NSRegularExpression(pattern: #"^\s*("# + namePattern + #")\s*$"#)
+    /// An uncertain identification ("Chromis cf. cyanea", "Gobiodon aff. citrinus"): no name
+    /// is read from it or from the text written with it.
+    private static let uncertainName = try! NSRegularExpression(pattern: #"^\s*[A-Z][a-z]+\s+(?:cf|aff|nr)\.\s"#)
+    /// The same, ending the text before a parenthesis ("Chromis cf. cyanea (Blue chromis)").
+    private static let uncertainNameAtEnd = try! NSRegularExpression(pattern: #"[A-Z][a-z]+\s+(?:cf|aff|nr)\.\s*[a-z][a-z\-]*\s*$"#)
+
+    private static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
+        regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
 
     private static func matchesName(_ text: String) -> Bool {
         wholeName.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
@@ -160,10 +181,11 @@ enum ScientificNameDetector {
             if !found.contains(where: { $0.scientificName == detection.scientificName }) { found.append(detection) }
         }
         let allKeywords = (keywords ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let hasHigherRankKeyword = allKeywords.contains { isConfirmingRankName($0) }
+        let hasRankKeyword = allKeywords.contains { isConfirmingRankName($0) }
         /// The genus is a keyword of its own ("Gymnothorax"), or the Latin side of a keyword
-        /// pair ("Barracuda (Sphyraena)", "Sphyraena (Barracuda)"); a keyword that merely
-        /// starts with the same word ("Sea turtle" + "Sea fan") does not count.
+        /// pair ("Barracuda (Sphyraena)", "Sphyraena (Barracuda)"), as in a Lightroom keyword
+        /// hierarchy; a keyword that merely starts with the same word ("Sea turtle" + "Sea
+        /// fan") does not count.
         func genusIsKeyword(_ name: String) -> Bool {
             guard let genus = name.split(separator: " ").first.map(String.init) else { return false }
             return allKeywords.contains { keyword in
@@ -171,37 +193,61 @@ enum ScientificNameDetector {
             }
         }
 
-        // Name and common name with parentheses, in either order.
+        // Name and common name with parentheses, in either order. The side taken as the
+        // scientific name has no English-word epithet: "Cozumel (Palancar reef)", "Canon 5D
+        // (Ikelite housing)" are no species, and "(Chaetodon ocellatus Bloch, 1787)" is not
+        // misread as a common name with "Spotfin butterflyfish" for its scientific name.
         for text in [title, caption].compactMap({ $0 }) + allKeywords {
             for (before, inside) in parenthesisedPairs(in: text) {
-                let insideIsName = matchesName(inside) && isScientific(normalised(inside))
+                // "Blue chromis (Chromis cf. cyanea)", "Chromis cf. cyanea (Blue chromis)": an
+                // uncertain identification, so "Blue chromis" is not taken for the scientific name.
+                if matches(uncertainName, inside) || matches(uncertainNameAtEnd, before) { continue }
+                var insideIsName = matchesName(inside) && isScientific(normalised(inside))
+                    && !hasCommonWordEpithet(normalised(inside))
                 let beforeName = lastName(in: before)
+                // Both sides can read as a name when the common name has a word the dictionary
+                // does not know ("Chaetodon ocellatus (Spotfin butterflyfish)", "Vanlig ulke
+                // (Myoxocephalus scorpius)"). The name in parentheses wins, as is the convention,
+                // unless only the text before it has Latin epithets, or only the name in
+                // parentheses starts with an ordinary word ("Chromis cyanea (Blue chromis)").
+                if insideIsName, let beforeName, isScientific(beforeName) {
+                    let insideName = normalised(inside)
+                    // Not "Queen coris (Coris gaimard)": a text starting with an English word is
+                    // the common name, whatever its endings.
+                    let latinOnlyBefore = hasLatinEndings(beforeName) && !hasLatinEndings(insideName)
+                        && !startsWithOrdinaryWord(beforeName)
+                    let ordinaryOnlyInside = startsWithOrdinaryWord(insideName) && !startsWithOrdinaryWord(beforeName)
+                    if latinOnlyBefore || ordinaryOnlyInside { insideIsName = false }
+                }
                 if insideIsName {
                     // "Teleostei (Egentlige beinfisker)" reads the same way: a rank first.
                     let hint = commonNameHint(before: before)
                     if let hint, isRankName(hint, beforeName: inside), normalised(before) == hint { continue }
-                    var detection = Detection(scientificName: normalised(inside), commonNameHint: hint)
-                    detection.isConfident = true
-                    add(detection)
-                } else if let beforeName, isScientific(beforeName),
+                    add(Detection(scientificName: normalised(inside), commonNameHint: hint))
+                } else if let beforeName, isScientific(beforeName), !hasCommonWordEpithet(beforeName),
                           !isRankName(normalised(inside), beforeName: beforeName) {
                     // "Thalassoma bifasciatum (Bluehead wrasse)": the common name in parentheses.
                     // Not "Bonaire (Salt pier)" (one word, no name) nor "(Anomura)" (a rank).
-                    var detection = Detection(scientificName: beforeName, commonNameHint: normalised(inside))
-                    detection.isConfident = true
-                    add(detection)
+                    add(Detection(scientificName: beforeName, commonNameHint: normalised(inside)))
                 }
             }
         }
 
-        // A keyword that is a name on its own: confirmed by the other keywords.
+        // A keyword that is a name on its own ("Homarus gammarus"): no English-word epithet,
+        // and a genus that is no ordinary word, so a common name alone ("Spotfin
+        // butterflyfish", "Blue chromis") is not taken for one. Its genus as another keyword
+        // confirms it as a scientific name; a genus that is an English word ("Octopus
+        // vulgaris", "Manta birostris") counts only with that genus keyword and a family or
+        // order keyword, as in a keyword hierarchy (a colour keyword "Blue" next to "Blue
+        // chromis" does not).
         for keyword in allKeywords where matchesName(keyword) {
             let name = normalised(keyword)
-            guard isScientific(name) else { continue }
+            guard isScientific(name), !hasCommonWordEpithet(name) else { continue }
             let byGenus = genusIsKeyword(name)
-            let byFamily = hasHigherRankKeyword && hasLatinEndings(name)
-            add(Detection(scientificName: name, commonNameHint: nil, inParentheses: false,
-                          genusIsKeyword: byGenus || byFamily, isConfident: byGenus))
+            // Without its genus keyword, Latin epithets too ("Portus cale", "Marsa alam" are places).
+            if !byGenus, !hasLatinEndings(name) { continue }
+            if startsWithOrdinaryWord(name), !(byGenus && hasRankKeyword) { continue }
+            add(Detection(scientificName: name, commonNameHint: nil, isBare: !byGenus))
         }
         return found
     }
@@ -370,9 +416,6 @@ enum SpeciesPhotoMatcher {
                 case .existing(let found): species = found; newName = ""
                 case .new(_, let commonName): species = nil; newName = commonName
                 }
-                // A bare keyword that names no catalogue species counts only when the photo's
-                // other keywords confirm it ("Gymnothorax" + "Gymnothorax meleagris").
-                if species == nil && !detection.inParentheses && !detection.genusIsKeyword { continue }
                 if let species, (photo.species ?? []).contains(where: { $0.persistentModelID == species.persistentModelID }) {
                     continue
                 }
@@ -453,16 +496,21 @@ enum SpeciesPhotoMatcher {
                     species = new
                 } else {
                     species = Species(commonName: commonName)
-                    species.scientificName = proposal.detection.scientificName
+                    // A name alone in a keyword stays the common name until iNaturalist
+                    // confirms it (`Detection.isBare`).
+                    if !proposal.detection.isBare {
+                        species.scientificName = proposal.detection.scientificName
+                    }
                     context.insert(species)
                     SpeciesCatalog.linkUnlinkedSightings(named: [commonName, proposal.detection.scientificName],
                                                          to: species, in: context)
                     created[key] = species
                 }
             }
-            // Found by its common name: the confirmed scientific name fills an empty one.
+            // Found by its common name: the scientific name written with it fills an empty
+            // one (not a name alone in a keyword).
             let scientific = proposal.detection.scientificName
-            if species.scientificName?.isEmpty ?? true,
+            if !proposal.detection.isBare, species.scientificName?.isEmpty ?? true,
                !(scientific.hasSuffix(" sp.") || scientific.hasSuffix(" spp.")) {
                 species.scientificName = scientific
             }
@@ -483,13 +531,14 @@ enum SpeciesPhotoMatcher {
 
 // MARK: - Review
 
-/// Initial selection: links to catalogue species start on. A proposal that would create a new
-/// species starts off, so a misread caption never creates one without a deliberate choice —
-/// except, with `includeConfidentNewSpecies` (right after a photo import), a name that is clearly
-/// scientific (written with parentheses, or confirmed by its genus keyword).
+/// Initial selection: links to catalogue species start on. With `includeNewSpecies` (right
+/// after a photo import) a new species starts on too when its scientific name is clear
+/// (written with parentheses, or confirmed by its genus keyword); a name found alone in a
+/// keyword (`Detection.isBare`) starts off. Otherwise (Find Species, over the whole logbook)
+/// every new species starts off.
 @MainActor
-func defaultAcceptedProposals(_ proposals: [SpeciesPhotoProposal], includeConfidentNewSpecies: Bool = false) -> Set<String> {
-    Set(proposals.filter { $0.existing != nil || (includeConfidentNewSpecies && $0.detection.isConfident) }.map(\.id))
+func defaultAcceptedProposals(_ proposals: [SpeciesPhotoProposal], includeNewSpecies: Bool = false) -> Set<String> {
+    Set(proposals.filter { $0.existing != nil || (includeNewSpecies && !$0.detection.isBare) }.map(\.id))
 }
 
 /// Applies the switched-on proposals, refreshes the changed dives' rows, and fills in the new
@@ -534,6 +583,8 @@ struct SpeciesProposalSections<Footer: View>: View {
                 Text("Also add the species to each photo’s dive")
             }
             .fullWidthSwitch()
+            // Applies to the species switched on above: nothing to add while none is.
+            .disabled(accepted.isEmpty)
         } footer: {
             Text("Adds a sighting to the dive when the dive does not list the species yet.")
         }
@@ -565,6 +616,17 @@ struct SpeciesProposalSections<Footer: View>: View {
                     Text(verbatim: String(format: NSLocalizedString("New species: %@", bundle: .forAppLanguage(), value: "New species: %@", comment: "Species-in-photos review: a new catalogue species is created with this common name"), proposal.newSpeciesName))
                         .font(.caption)
                         .foregroundStyle(.orange)
+                    if proposal.detection.isBare {
+                        // Why it starts off: nothing in the photo confirms the name is scientific.
+                        Label {
+                            Text("Unconfirmed name: found alone in a keyword")
+                        } icon: {
+                            Image(systemName: "info.circle")
+                                .accessibilityHidden(true)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 if let filename = proposal.photo.originalFilename {
                     Text(verbatim: filename)
@@ -587,14 +649,14 @@ struct SpeciesPhotoReviewSheet: View {
     @Environment(DiveStore.self) private var store
     @State private var accepted: Set<String>
     @State private var recordSightings = true
-    /// Shown right after a photo import: new species with a clearly scientific name start
+    /// Shown right after a photo import: new species with a clear scientific name start
     /// switched on, as in the batch import. Off (Find Species): every new species starts off.
     private let afterImport: Bool
 
     init(proposals: [SpeciesPhotoProposal], afterImport: Bool = false) {
         self.proposals = proposals
         self.afterImport = afterImport
-        _accepted = State(initialValue: defaultAcceptedProposals(proposals, includeConfidentNewSpecies: afterImport))
+        _accepted = State(initialValue: defaultAcceptedProposals(proposals, includeNewSpecies: afterImport))
     }
 
     var body: some View {
@@ -614,7 +676,13 @@ struct SpeciesPhotoReviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    closeToolbarButton { dismiss() }
+                    if afterImport {
+                        // Leaves without linking (the photos stay imported), as Escape and
+                        // swiping the sheet away do.
+                        Button("Skip") { dismiss() }
+                    } else {
+                        closeToolbarButton { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {

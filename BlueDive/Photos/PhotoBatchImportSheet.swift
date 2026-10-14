@@ -99,7 +99,13 @@ struct PhotoBatchImportSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    closeToolbarButton { close() }
+                    if case .finished = phase, !speciesProposals.isEmpty {
+                        // Leaves without linking the species found (the photos stay imported),
+                        // as Escape and swiping the sheet away do.
+                        Button("Skip") { close() }
+                    } else {
+                        closeToolbarButton { close() }
+                    }
                 }
                 if phase == .review {
                     ToolbarItem(placement: .confirmationAction) {
@@ -122,8 +128,9 @@ struct PhotoBatchImportSheet: View {
                     }
                 } else if case .finished = phase {
                     ToolbarItem(placement: .confirmationAction) {
-                        // Done links the species switched on in the summary; the close
-                        // button leaves without linking (the photos are imported either way).
+                        // Done links the species switched on in the summary; Skip (or the
+                        // close button, with no species) leaves without linking (the photos
+                        // are imported either way).
                         Button("Done") {
                             applySpeciesProposals(speciesProposals, accepted: acceptedProposals,
                                                   recordSightings: recordSightings,
@@ -282,7 +289,7 @@ struct PhotoBatchImportSheet: View {
         if !speciesProposals.isEmpty {
             SpeciesProposalSections(proposals: speciesProposals, accepted: $acceptedProposals,
                                     recordSightings: $recordSightings) {
-                Text("Names found in the photos’ captions and keywords. Done links the species switched on; the close button leaves without linking. The photos themselves are not changed.")
+                Text("Names found in the photos’ captions and keywords. Done links the species switched on; Skip leaves without linking them. The photos themselves are not changed.")
             }
         }
     }
@@ -562,8 +569,8 @@ struct PhotoBatchImportSheet: View {
             for: SpeciesPhotoMatcher.photos(withIDs: summary.importedPhotoIDs + summary.updatedPhotoIDs, in: modelContext),
             catalogue: catalogue)
         // After a batch import the proposals start switched on, new species included when
-        // their name is clearly scientific; a weaker reading starts off.
-        acceptedProposals = defaultAcceptedProposals(speciesProposals, includeConfidentNewSpecies: true)
+        // their scientific name is clear; a name found alone in a keyword starts off.
+        acceptedProposals = defaultAcceptedProposals(speciesProposals, includeNewSpecies: true)
         phase = .finished(summary)
     }
 
