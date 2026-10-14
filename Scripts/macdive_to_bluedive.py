@@ -122,6 +122,17 @@ Data priority (first available source wins; "Raw" = agreeing raw data, see above
                                                                transmitter of a one-tank dive MacDive has no
                                                                pressures for) → XML (gas matched by mix,
                                                                else position) → SQLite
+    Rebreather cylinders (--import-unmatched-tanks only;       Raw: on CCR/SCR dives whose computer marks its
+      off by default)                                          cylinders as oxygen or diluent, they are matched
+                                                               to MacDive's tanks by role and gas, not pressure
+                                                               (diluent → MacDive's tank with the computer's
+                                                               diluent gas; oxygen → MacDive's 100% O2 tank),
+                                                               taking the computer's start/end and sample
+                                                               pressures. A cylinder MacDive does not have is
+                                                               added: diluent with the computer's diluent gas,
+                                                               oxygen as 100% O2 (inferred from the role).
+                                                               Ambiguous cases are logged, not changed.
+                                                               Transmitters without a role are never added.
     Marine life                                                SQLite (dive-linked critters + photo-tagged
                                                                critters, count = photos tagged)
     Profile samples (time, depth, temperature, NDL, PPO₂,      Raw → XML.  PPO₂ only as the computer reports it
@@ -760,6 +771,7 @@ _DC_DECO_NDL, _DC_DECO_DECOSTOP = 0, 2
 _DC_SENSOR_NONE = 0xFFFFFFFF
 _DC_GASMIX_UNKNOWN = 0xFFFFFFFF   # e.g. Shearwater, for a tank without a transmitter
 _DC_DIVEMODES = {0: "freedive", 1: "gauge", 2: "OC", 3: "CCR", 4: "SCR"}
+_DC_USAGE_OXYGEN, _DC_USAGE_DILUENT = 1, 2   # dc_usage_t: the computer's role for a tank or gas
 
 
 def _http_get(url, accept=None):
@@ -1193,13 +1205,15 @@ class LibDC:
                 return None
             n_mix = C.c_uint(0)
             lib.dc_parser_get_field(parser, _DC_FIELD_GASMIX_COUNT, 0, C.byref(n_mix))
-            gasmixes = []
+            gasmixes, gasmix_usage = [], []
             for i in range(n_mix.value):
                 gm = self.GasMix()
                 if lib.dc_parser_get_field(parser, _DC_FIELD_GASMIX, i, C.byref(gm)) == 0:
                     gasmixes.append((round(gm.oxygen * 100), round(gm.helium * 100)))
+                    gasmix_usage.append(gm.usage)
                 else:
                     gasmixes.append(None)
+                    gasmix_usage.append(None)
             mode = C.c_int(-1)
             lib.dc_parser_get_field(parser, _DC_FIELD_DIVEMODE, 0, C.byref(mode))
             # Dive-level values the computer recorded (None when the parser has no such field).
@@ -1212,13 +1226,14 @@ class LibDC:
                     tk = self.Tank()
                     if lib.dc_parser_get_field(parser, _DC_FIELD_TANK, i, C.byref(tk)) == 0:
                         raw_tanks.append({"gasmix": tk.gasmix, "begin": tk.beginpressure,
-                                          "end": tk.endpressure})
+                                          "end": tk.endpressure, "usage": tk.usage})
             return {
                 "divetime":    divetime.value if has_divetime and divetime.value > 0 else None,
                 "dc_maxdepth": maxdepth.value if has_maxdepth and maxdepth.value > 0 else None,
                 "tanks":       raw_tanks,
                 "samples":     samples,
                 "gasmixes":    gasmixes,
+                "gasmix_usage": gasmix_usage,
                 "divemode":    _DC_DIVEMODES.get(mode.value, "unknown"),
                 "max_depth":   max(depths),
                 "span":        max(s["time"] for s in samples),
@@ -1563,6 +1578,63 @@ def map_raw_tanks(decoded, tanks, cvt_press, tolerance, end_time=None):
         if raw_tank_mix_ok(decoded, only, tanks[0]):
             mapping = {only: 0}
     return mapping, {i: (v[0], v[1]) for i, v in values.items()}, series
+
+
+def rebreather_tank_plan(decoded, tanks, base_mapping, values):
+    """
+    For --import-unmatched-tanks on a rebreather dive (CCR/SCR) whose computer records tank
+    roles: match the computer's cylinders to MacDive's tanks by role and gas instead of by
+    pressure (MacDive often put the oxygen cylinder's pressures on the diluent tank), and list
+    the cylinders MacDive does not have. `tanks` must hold MacDive's values.
+      - Diluent: MacDive's only free tank with the computer's diluent gas (the computer must
+        list exactly one diluent gas). With several such tanks, the one the pressures matched,
+        else none. No such tank: added with that gas.
+      - Oxygen: MacDive's only free 100 % O2 tank (same tie rule). None: added as 100 % O2 —
+        inferred from the role, since the computer records no mix for it.
+    Computer tanks without a role keep their pressure match (base_mapping).
+    Returns (mapping, role_matched raw indices, additions [(raw i, role, (o2, he))], notes),
+    or None when the dive is not a rebreather dive with tank roles.
+    """
+    records = decoded.get("tanks") or []
+    roles = {i: r.get("usage") for i, r in enumerate(records)
+             if r.get("usage") in (_DC_USAGE_OXYGEN, _DC_USAGE_DILUENT)}
+    if decoded.get("divemode") not in ("CCR", "SCR") or not roles:
+        return None
+    diluent_mixes = sorted({tuple(mix) for mix, use in zip(decoded["gasmixes"], decoded.get("gasmix_usage") or [])
+                            if use == _DC_USAGE_DILUENT and mix is not None})
+    mapping = {i: k for i, k in base_mapping.items() if i not in roles}
+    taken = set(mapping.values())
+    role_matched, additions, notes = set(), [], []
+    for i, use in sorted(roles.items()):
+        name = "oxygen" if use == _DC_USAGE_OXYGEN else "diluent"
+        if i not in values:
+            notes.append(f"{name} cylinder in raw data has no pressures — not matched")
+            continue
+        if use == _DC_USAGE_OXYGEN:
+            mix = (100, 0)
+            is_role_tank = lambda tk: tk["o2"] >= 99 and tk["he"] == 0
+        elif len(diluent_mixes) == 1:
+            mix = diluent_mixes[0]
+            is_role_tank = lambda tk, m=mix: (tk["o2"], tk["he"]) == m
+        else:
+            notes.append(f"diluent cylinder: the computer lists {len(diluent_mixes)} diluent gases — "
+                         f"not matched by role")
+            continue
+        candidates = [k for k, tk in enumerate(tanks) if is_role_tank(tk) and k not in taken]
+        if len(candidates) == 1:
+            k = candidates[0]
+        elif base_mapping.get(i) in candidates:
+            k = base_mapping[i]
+        elif candidates:
+            notes.append(f"{name} cylinder: {len(candidates)} MacDive tanks with {mix[0]}/{mix[1]} — not matched")
+            continue
+        else:
+            additions.append((i, name, mix))
+            continue
+        mapping[i] = k
+        taken.add(k)
+        role_matched.add(i)
+    return mapping, role_matched, additions, notes
 
 
 def raw_agrees(decoded, ref_name, ref_max_m, ref_span):
@@ -2503,16 +2575,17 @@ def profile_samples_xml_lines(samples, indent=4):
 # Dive export
 # ---------------------------------------------------------------------------
 
-def export_dives(input_path, output_path, weight_unit, macdive_xml_path):
+def export_dives(input_path, output_path, weight_unit, macdive_xml_path, import_unmatched_tanks=False):
     """Export dives; the libdivecomputer worker is stopped however the export ends."""
     try:
-        return _export_dives(input_path, output_path, weight_unit, macdive_xml_path)
+        return _export_dives(input_path, output_path, weight_unit, macdive_xml_path,
+                             import_unmatched_tanks)
     finally:
         for worker in list(_ACTIVE_WORKERS):
             worker.close()
 
 
-def _export_dives(input_path, output_path, weight_unit, macdive_xml_path):
+def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import_unmatched_tanks=False):
     _reset_schema_caches()
 
     # Parse MacDive XML first — distance/temp/pressure/volume are auto-detected from its <units> tag.
@@ -2772,6 +2845,7 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path):
     _raw_reasons = _collections.Counter()
     _n_deco_dives = 0
     _n_raw_vals   = _collections.Counter()   # dive values taken from raw data instead of MacDive
+    _n_unmatched  = _collections.Counter()   # computer tanks MacDive did not have
     print("  Profile source per dive:")
 
     # Per-dive unit log setup.
@@ -3061,15 +3135,46 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path):
             _tank_map, _raw_tank_values, _raw_series = map_raw_tanks(
                 decoded, _macdive_tanks, cvt_bar_out, 1.0 if _press_to_bar else 14.5038,
                 _macdive_duration)
+            # Rebreather dive with tank roles: --import-unmatched-tanks matches the computer's
+            # cylinders by role and gas, and adds the ones MacDive does not have.
+            _plan = rebreather_tank_plan(decoded, _macdive_tanks, _tank_map, _raw_tank_values)
+            _role_matched, _additions = set(), []
+            if _plan and import_unmatched_tanks:
+                _tank_map, _role_matched, _additions, _plan_notes = _plan
+                for _note in _plan_notes:
+                    _dive_log.append(f"  tanks      : {_note}")
+                    _n_unmatched["rebreather cylinders not matched (see log)"] += 1
+            elif _plan and _plan[2]:
+                _n_unmatched["rebreather cylinders not added (flag off)"] += len(_plan[2])
             for _ri, _ti in sorted(_tank_map.items(), key=lambda kv: kv[1]):
                 _t = tanks[_ti]
                 _old = (_t.get("start"), _t.get("end"))
                 _t["start"], _t["end"] = _raw_tank_values[_ri]
                 if _old[0] is None or _old[1] is None or abs(_old[0] - _t["start"]) > 0.005 \
                         or abs(_old[1] - _t["end"]) > 0.005:
+                    _role = (" (matched by the computer's "
+                             + ("oxygen" if decoded["tanks"][_ri].get("usage") == _DC_USAGE_OXYGEN else "diluent")
+                             + " role)") if _ri in _role_matched else ""
                     _changes.append(f"tank[{_ti + 1}] {_fv(_old[0])}/{_fv(_old[1])} → "
-                                    f"{_fv(_t['start'])}/{_fv(_t['end'])} {_log_pu}")
+                                    f"{_fv(_t['start'])}/{_fv(_t['end'])} {_log_pu}{_role}")
                     _n_raw_vals["tank pressures"] += 1
+            if _role_matched:
+                _n_unmatched["rebreather cylinders matched by role"] += len(_role_matched)
+            for _ri, _rname, _mix in _additions:
+                _st, _en = _raw_tank_values[_ri]
+                tanks.append({"o2": _mix[0], "he": _mix[1], "start": _st, "end": _en,
+                              "wp_out": None, "vol_out": None, "mat": None, "type": None})
+                _tank_map[_ri] = len(tanks) - 1
+                _dive_log.append(f"  tanks      : added {_rname} cylinder from raw data — tank[{len(tanks)}] "
+                                 f"{_mix[0]}/{_mix[1]}, {_fv(_st)}/{_fv(_en)} {_log_pu}"
+                                 + (" (100% O2 inferred from the computer's oxygen role)"
+                                    if _rname == "oxygen" else ""))
+                _n_unmatched[f"{_rname} cylinder added"] += 1
+            _with_role = {i for i, r in enumerate(decoded.get("tanks") or [])
+                          if r.get("usage") in (_DC_USAGE_OXYGEN, _DC_USAGE_DILUENT)}
+            _open_extra = [i for i in _raw_series if i not in _tank_map and i not in _with_role]
+            if _open_extra:
+                _n_unmatched["unmatched transmitters without a role (not added)"] += len(_open_extra)
             if _changes:
                 _dive_log.append("  raw values : " + "; ".join(_changes) + "  (MacDive → raw data)")
 
@@ -3317,7 +3422,7 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path):
                 _dive_log.append(f"  pressures  : {_n_pt} transmitter tank(s) in raw data, {_n_pt_mapped} matched "
                                  f"to a dive tank by start/end pressure"
                                  + (f" — {_pressure_note}" if _pressure_note
-                                    else " (unmatched tanks not imported)"))
+                                    else " (unmatched tanks not imported)" if _n_pt_mapped < _n_pt else ""))
             # Gas switches from the raw data (MacDive's when the raw data reports no gas),
             # other events from both sources.
             _raw_evs = raw_events(decoded, tanks)
@@ -3418,6 +3523,9 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path):
         f"  Dives with deco stops from raw data              : {_n_deco_dives}",
         "  Dive values changed by raw data (MacDive → raw): "
         + (", ".join(f"{k} {v}" for k, v in _n_raw_vals.items()) or "none"),
+        "  Unmatched computer tanks (--import-unmatched-tanks "
+        + ("on" if import_unmatched_tanks else "off") + "): "
+        + (", ".join(f"{k} {v}" for k, v in _n_unmatched.items()) or "none"),
     ]
     if _raw_reasons:
         _src_summary.append("  Raw data not used (# = number):")
@@ -3784,6 +3892,10 @@ Examples:
                              "field (e.g. '9 kg') overrides it per record  [required for dives, gears]")
     parser.add_argument("--macdive-xml", dest="macdive_xml", default=None,
                         help="Path to a MacDive XML export — units and profile samples are read from it  [required for dives]")
+    parser.add_argument("--import-unmatched-tanks", dest="import_unmatched_tanks", action="store_true",
+                        help="Dives: also add rebreather cylinders the dive computer recorded but MacDive "
+                             "did not (the computer marks them as oxygen or diluent), with the computer's "
+                             "pressures. An oxygen cylinder is added as 100%% O2. Off by default.")
     args = parser.parse_args()
 
     if not Path(args.input).exists():
@@ -3806,7 +3918,8 @@ Examples:
             parser.error(f"--export dives requires: {', '.join(missing)}")
         if not Path(args.macdive_xml).exists():
             parser.error(f"MacDive XML file not found: {args.macdive_xml}")
-        export_dives(args.input, args.output, args.weight, macdive_xml_path=args.macdive_xml)
+        export_dives(args.input, args.output, args.weight, macdive_xml_path=args.macdive_xml,
+                     import_unmatched_tanks=args.import_unmatched_tanks)
 
     elif args.export_type == "gears":
         if args.weight is None:
