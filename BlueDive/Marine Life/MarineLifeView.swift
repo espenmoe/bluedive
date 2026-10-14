@@ -18,6 +18,10 @@ struct MarineLifeView: View {
     @State private var isShown = false
     /// Catalogue species opened from the list, shown in a sheet.
     @State private var shownSpecies: Species?
+    /// Sightings not in the catalogue, shown in a sheet like a catalogue species.
+    @State private var shownUnlinkedSpecies: SpeciesAggregate?
+    /// The catalogue species whose row was swiped to delete, until confirmed.
+    @State private var speciesToDelete: Species?
 
     // Cached aggregates
     @State private var cachedSpecies: [SpeciesAggregate] = []
@@ -351,21 +355,31 @@ struct MarineLifeView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            heroStatsRow
-                                .opacity(appeared ? 1.0 : 0.0)
-                                .offset(y: appeared ? 0 : 20)
+                    // A List (not a ScrollView) so species rows get the system swipe to delete
+                    // on every version, with touch, trackpad and mouse. The cards are drawn by
+                    // the rows themselves: the statistics on a clear row, the species card as
+                    // one slice per row, drawn by each row's content (see `speciesCardRow`).
+                    List {
+                        // Spacing as padding, not row insets: macOS ignores vertical row insets.
+                        heroStatsRow
+                            .padding(.bottom, 24)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
 
-                            speciesListSection
-                                .opacity(appeared ? 1.0 : 0.0)
-                                .offset(y: appeared ? 0 : 20)
-                        }
-                        .padding(.bottom, 30)
+                        speciesListRows
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .environment(\.defaultMinListRowHeight, 0)
+                    .contentMargins(.bottom, 30, for: .scrollContent)
+                    .softTopScrollEdge()
+                    .opacity(appeared ? 1.0 : 0.0)
+                    .offset(y: appeared ? 0 : 20)
                 }
             }
-            .navigationTitle("Marine Life")
+            // No title, as on the other tab roots (the tab bar names the tab).
+            .navigationTitle("")
             .toolbar { toolbarContent }
             .background(AppBackground().ignoresSafeArea())
             .onChange(of: taxonFilter) { _, _ in rebuildTaxonSelection() }
@@ -389,10 +403,11 @@ struct MarineLifeView: View {
                 }
             }
             .diverFilterReset(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
-            // The row's own data: a page stays filled when the statistics are recomputed while
+            // The row's own data: the sheet stays filled when the statistics are recomputed while
             // it is open (e.g. its sightings are linked to a new species from a pushed dive).
-            .navigationDestination(for: SpeciesAggregate.self) { aggregate in
-                destination(for: aggregate)
+            .sheet(item: $shownUnlinkedSpecies) { aggregate in
+                unlinkedSightingsSheet(for: aggregate)
+                    .standardSheetPresentation()
             }
             .sheet(item: $shownSpecies) { species in
                 // "View Dives with This Critter" closes the sheet, then shows the dive list.
@@ -452,6 +467,19 @@ struct MarineLifeView: View {
                     Text(verbatim: String(format: NSLocalizedString("%@ sightings will be linked to catalogue species, and %@ new species will be created from their names. Sighting names are not changed.", bundle: .forAppLanguage(), value: "%@ sightings will be linked to catalogue species, and %@ new species will be created from their names. Sighting names are not changed.", comment: "Build catalogue confirmation: sightings to link, species to create (locale-formatted numbers)"), Double(plan.sightingsToLink).localizedString(decimals: 0), Double(plan.newSpeciesNames.count).localizedString(decimals: 0)))
                 }
             }
+            .alert("Delete Species", isPresented: Binding(
+                get: { speciesToDelete != nil },
+                set: { if !$0 { speciesToDelete = nil } }
+            ), presenting: speciesToDelete) { species in
+                Button("Delete", role: .destructive) {
+                    // Deleted or merged meanwhile (here or on another device): nothing to do.
+                    guard !species.isDeleted, species.modelContext != nil else { return }
+                    SpeciesCatalog.delete(species, in: modelContext)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: { _ in
+                Text("The species is removed from the catalogue. Its sightings stay on their dives with the names they were recorded with, and its photos stay on their dives.")
+            }
             .alert("Catalogue Built", isPresented: Binding(
                 get: { buildResult != nil },
                 set: { if !$0 { buildResult = nil } }
@@ -500,6 +528,7 @@ struct MarineLifeView: View {
             showAddSpecies = true
         } label: {
             Image(systemName: "plus")
+                .foregroundStyle(.cyan)
         }
         .accessibilityLabel(Text("Add Species"))
     }
@@ -589,9 +618,64 @@ struct MarineLifeView: View {
 
     // MARK: - Species List
 
-    private var speciesListSection: some View {
+    /// The species card as List rows: its top part (title, search, banners or an empty state),
+    /// then one row per species, the last one closing the card.
+    @ViewBuilder
+    private var speciesListRows: some View {
         let filteredSpecies = filteredSpecies
-        return VStack(alignment: .leading, spacing: 14) {
+        let showsRows = !cachedSpecies.isEmpty && !filteredSpecies.isEmpty
+        speciesListHeader(filteredSpecies: filteredSpecies)
+            .padding(.top, 16)
+            .padding(.bottom, showsRows ? 14 : 16)
+            .speciesCardRow(closesTop: true, closesBottom: !showsRows)
+
+        if showsRows {
+            ForEach(Array(filteredSpecies.enumerated()), id: \.element.id) { index, species in
+                speciesListRow(index: index, species: species, isLast: index == filteredSpecies.count - 1)
+            }
+        }
+    }
+
+    /// One species row. Its sheet is built only when the row is opened (a catalogue species,
+    /// or sightings not in the catalogue). Only a catalogue species can be swiped
+    /// to delete (sightings not in the catalogue have no catalogue entry to delete).
+    @ViewBuilder
+    private func speciesListRow(index: Int, species: SpeciesAggregate, isLast: Bool) -> some View {
+        let row = Button {
+            if let id = species.speciesID {
+                shownSpecies = liveSpecies(id)
+            } else {
+                shownUnlinkedSpecies = species
+            }
+        } label: {
+            speciesRow(index: index, species: species)
+                .overlay(alignment: .bottom) {
+                    if !isLast {
+                        Divider()
+                            .background(Color.primary.opacity(0.08))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, isLast ? 16 : 0)
+        .speciesCardRow(closesTop: false, closesBottom: isLast)
+
+        if let id = species.speciesID {
+            row.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    speciesToDelete = liveSpecies(id)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+            }
+        } else {
+            row
+        }
+    }
+
+    private func speciesListHeader(filteredSpecies: [SpeciesAggregate]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Image(systemName: "list.bullet")
                     .foregroundStyle(.cyan)
@@ -675,46 +759,16 @@ struct MarineLifeView: View {
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.cyan)
                             }
-                            .borderlessButton()
+                            // Explicit on iOS too: in a List row, default-style buttons make the
+                            // whole row one tap target that fires them.
+                            .buttonStyle(.borderless)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 20)
-                } else {
-                    let rows = filteredSpecies
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, species in
-                            // The page is built only when the row is opened: a catalogue
-                            // species in a sheet, sightings not in the catalogue pushed.
-                            if let id = species.speciesID {
-                                Button {
-                                    shownSpecies = liveSpecies(id)
-                                } label: {
-                                    speciesRow(index: index, species: species)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                NavigationLink(value: species) {
-                                    speciesRow(index: index, species: species)
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            if index < rows.count - 1 {
-                                Divider()
-                                    .background(Color.primary.opacity(0.08))
-                            }
-                        }
-                    }
                 }
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.platformSecondaryBackground)
-        )
-        .padding(.horizontal)
     }
 
     /// Names recorded on dives but not in the catalogue, with the action that adds them all
@@ -732,7 +786,8 @@ struct MarineLifeView: View {
                 buildPlan = SpeciesCatalog.planBuild(in: modelContext, diverName: diverScope)
             }
             .font(.caption.weight(.semibold))
-            .borderlessButton()
+            // Explicit on iOS too: the banner sits in a List row (see "Clear filters").
+            .buttonStyle(.borderless)
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.1)))
@@ -751,14 +806,15 @@ struct MarineLifeView: View {
                 viewDivesInTaxon()
             }
             .font(.caption.weight(.semibold))
-            .borderlessButton()
+            // Explicit on iOS too: the banner sits in a List row (see "Clear filters").
+            .buttonStyle(.borderless)
             Button {
                 taxonFilter = ""
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
-            .borderlessButton()
+            .buttonStyle(.borderless)
             .accessibilityLabel(Text("Clear"))
         }
         .padding(10)
@@ -776,19 +832,16 @@ struct MarineLifeView: View {
         showDiveList?()
     }
 
-    /// The page pushed for sightings not in the catalogue (a catalogue species opens in a sheet).
-    @ViewBuilder
-    private func destination(for aggregate: SpeciesAggregate) -> some View {
-        if aggregate.speciesID == nil {
-            UnlinkedSightingsView(
-                name: aggregate.name,
-                // By identifier (no dive read), then only dives still in the store.
-                dives: aggregate.diveIDs.compactMap { store.diveByID[$0] }
-                    .filter { !$0.isDeleted && $0.modelContext != nil },
-                numberMap: cachedNumberMap,
-                onLinked: { contentVersion += 1 }
-            )
-        }
+    /// The sheet for sightings not in the catalogue, as a catalogue species opens in a sheet.
+    private func unlinkedSightingsSheet(for aggregate: SpeciesAggregate) -> some View {
+        UnlinkedSightingsSheet(
+            name: aggregate.name,
+            // By identifier (no dive read), then only dives still in the store.
+            dives: aggregate.diveIDs.compactMap { store.diveByID[$0] }
+                .filter { !$0.isDeleted && $0.modelContext != nil },
+            numberMap: cachedNumberMap,
+            onLinked: { contentVersion += 1 }
+        )
     }
 
     // Builds "3× Abundant · 1× Few" with locale-formatted numbers, highest range first.
@@ -873,15 +926,6 @@ struct MarineLifeView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(Capsule().fill(.orange.opacity(0.15)))
-
-            // Only the rows that push a page (sightings not in the catalogue); a catalogue
-            // species opens in a sheet.
-            if species.speciesID == nil {
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 4)
@@ -898,7 +942,7 @@ struct UnlinkedSightingsView: View {
     let name: String
     let dives: [Dive]
     let numberMap: [PersistentIdentifier: Int]
-    /// The sheet the page is pushed in, if any (its dives' pages get its close button).
+    /// The sheet the page is shown in, if any (its dives' pages get its close button).
     @Environment(\.sheetDismiss) private var sheetDismiss
     /// Called after the sightings were linked to a species (the list must refresh).
     var onLinked: () -> Void = {}
@@ -1210,6 +1254,73 @@ struct MarineLifeFilterSheet: View {
         }
         .chipRowFade()
         #endif
+    }
+}
+
+/// Sightings not in the catalogue in a sheet, as `SpeciesSheet` shows a catalogue species. The
+/// page is the sheet's first page, so its own dismiss (after "Add to Catalogue" or a link)
+/// closes the sheet.
+struct UnlinkedSightingsSheet: View {
+    let name: String
+    let dives: [Dive]
+    let numberMap: [PersistentIdentifier: Int]
+    var onLinked: () -> Void = {}
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            UnlinkedSightingsView(name: name, dives: dives, numberMap: numberMap, onLinked: onLinked)
+                #if os(iOS)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        closeToolbarButton { dismiss() }
+                    }
+                }
+                #endif
+                // macOS: the close button (and Escape), and `\.sheetDismiss`, so the dives
+                // the page opens get the button too.
+                .closeSheetButtonOnMac { dismiss() }
+        }
+    }
+}
+
+private extension View {
+    /// iOS 26 / macOS 26: the soft (blurred) scroll edge under the toolbar, as on the other
+    /// tabs. The system picks the hard (nearly opaque) edge for a plain-style List. No scroll
+    /// edge effect exists before, so the view is returned unchanged.
+    @ViewBuilder
+    func softTopScrollEdge() -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+
+    /// A List row that is one slice of the Marine Life species card: inset 16 pt from the
+    /// edges like the statistics (content 16 pt further in), no list separator, and a
+    /// background rounded only where the slice opens or closes the card. The slice is drawn
+    /// by the row's content, not `listRowBackground`: on macOS the row background is wider
+    /// than the content (the list adds its own content inset), so the card would not line
+    /// up with the statistics.
+    func speciesCardRow(closesTop: Bool, closesBottom: Bool) -> some View {
+        let top: CGFloat = closesTop ? 20 : 0
+        let bottom: CGFloat = closesBottom ? 20 : 0
+        return self
+            .padding(.horizontal, 16)
+            .background(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: top,
+                    bottomLeadingRadius: bottom,
+                    bottomTrailingRadius: bottom,
+                    topTrailingRadius: top
+                )
+                .fill(Color.platformSecondaryBackground)
+            )
+            .padding(.horizontal, 16)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 
