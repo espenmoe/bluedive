@@ -127,6 +127,12 @@ struct INaturalistLookupSheet: View {
                 Text(verbatim: result.name)
                     .italic()
                     .foregroundStyle(.primary)
+                // Found through a former scientific name (a genus renamed since).
+                if let former = result.formerName {
+                    Text(verbatim: String(format: NSLocalizedString("Formerly %@", bundle: .forAppLanguage(), value: "Formerly %@", comment: "iNaturalist lookup result found through a former scientific name; %@ is that name, e.g. Gobiusculus flavescens"), former))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 HStack(spacing: 6) {
                     if let common = result.commonName {
                         Text(verbatim: common)

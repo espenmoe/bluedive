@@ -5,8 +5,9 @@ import UIKit
 #endif
 
 /// Settings → Online Services → Update Species from iNaturalist: looks up every catalogue
-/// species that has a scientific name and no iNaturalist taxon yet (exact name match only),
-/// one per second. A run that stops continues where it left off the next time.
+/// species that has a scientific name and no iNaturalist taxon yet (exact name match, or a
+/// confirmed former name), one per second, and looks up again the species not found through
+/// former names. A run that stops continues where it left off the next time.
 struct UpdateAllTaxonomyView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -17,8 +18,13 @@ struct UpdateAllTaxonomyView: View {
     @State private var namesStatus: INaturalistUpdater.BatchStatus?
     @State private var namesTask: Task<Void, Never>?
     @State private var namesPendingCount: Int?
+    /// Looking up again the species not found, through former scientific names.
+    @State private var retryStatus: INaturalistUpdater.BatchStatus?
+    @State private var retryTask: Task<Void, Never>?
+    @State private var retryPendingCount: Int?
 
     private var isFetchingNames: Bool { namesStatus?.isRunning ?? false }
+    private var isRetrying: Bool { retryStatus?.isRunning ?? false }
 
     /// The common-names language's name in that language, e.g. "Deutsch".
     private var languageName: String {
@@ -31,7 +37,7 @@ struct UpdateAllTaxonomyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Looks up every species that has a scientific name and is not linked to iNaturalist yet. Only exact scientific-name matches are used; other species can be looked up one by one from their page. Only the species name is sent.")
+                Text("Looks up every species that has a scientific name and is not linked to iNaturalist yet. Only exact scientific-name matches, or a former scientific name that iNaturalist confirms, are used; other species can be looked up one by one from their page. Only the species name is sent.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if UserPreferences.shared.useINaturalistCommonNames {
@@ -60,9 +66,39 @@ struct UpdateAllTaxonomyView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(isRunning ? .red : .green)
-                .disabled(isFetchingNames || (!isRunning && (pendingCount ?? 0) == 0))
+                .disabled(isFetchingNames || isRetrying || (!isRunning && (pendingCount ?? 0) == 0))
 
                 if let status { statusView(status) }
+
+                Divider()
+                    .padding(.vertical, 8)
+
+                Text("Species Not Found")
+                    .font(.headline)
+                Text("Looks again for the species iNaturalist did not find, in case their scientific name has changed since (for example, a new genus). Only a former name that iNaturalist confirms links a species; species you chose not to link stay unlinked.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let retryPendingCount {
+                    Text(verbatim: String(format: NSLocalizedString("Species not found: %@", bundle: .forAppLanguage(), value: "Species not found: %@", comment: "Number of catalogue species looked up on iNaturalist without a match (locale-formatted number)"), Double(retryPendingCount).localizedString(decimals: 0)))
+                        .font(.subheadline)
+                }
+                Button {
+                    if isRetrying { retryTask?.cancel() } else { startRetry() }
+                } label: {
+                    Group {
+                        if isRetrying {
+                            Label("Stop Updating", systemImage: "stop.fill")
+                        } else {
+                            Label("Look Up Again", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(isRetrying ? .red : .green)
+                .disabled(isRunning || isFetchingNames || (!isRetrying && (retryPendingCount ?? 0) == 0))
+
+                if let retryStatus { statusView(retryStatus) }
 
                 Divider()
                     .padding(.vertical, 8)
@@ -96,7 +132,7 @@ struct UpdateAllTaxonomyView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(isFetchingNames ? .red : .green)
-                .disabled(isRunning || (!isFetchingNames && (namesPendingCount ?? 0) == 0))
+                .disabled(isRunning || isRetrying || (!isFetchingNames && (namesPendingCount ?? 0) == 0))
 
                 if let namesStatus { statusView(namesStatus) }
             }
@@ -108,6 +144,7 @@ struct UpdateAllTaxonomyView: View {
         .onDisappear {
             task?.cancel()
             namesTask?.cancel()
+            retryTask?.cancel()
             #if os(iOS)
             UIApplication.shared.isIdleTimerDisabled = false
             #endif
@@ -116,6 +153,7 @@ struct UpdateAllTaxonomyView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .background, isRunning { task?.cancel() }
             if phase == .background, isFetchingNames { namesTask?.cancel() }
+            if phase == .background, isRetrying { retryTask?.cancel() }
         }
         #endif
     }
@@ -154,6 +192,22 @@ struct UpdateAllTaxonomyView: View {
         pendingCount = all.filter(INaturalistUpdater.needsLookup).count
         namesPendingCount = INaturalistUpdater.speciesMissingName(
             in: all, languageCode: INaturalistService.nameLanguageCode).count
+        retryPendingCount = all.filter { INaturalistUpdater.retryName(of: $0) != nil }.count
+    }
+
+    private func startRetry() {
+        let container = modelContext.container
+        #if os(iOS)
+        UIApplication.shared.isIdleTimerDisabled = true
+        #endif
+        retryTask = Task {
+            let final = await INaturalistUpdater.updateAll(container: container, formerNamesOnly: true) { retryStatus = $0 }
+            retryStatus = final
+            #if os(iOS)
+            UIApplication.shared.isIdleTimerDisabled = false
+            #endif
+            countPending()
+        }
     }
 
     private func startNames() {

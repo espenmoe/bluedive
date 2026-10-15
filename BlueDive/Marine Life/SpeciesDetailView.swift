@@ -234,6 +234,13 @@ struct SpeciesDetailView: View {
                         .font(.subheadline)
                         .italic()
                         .foregroundStyle(.secondary)
+                    // Linked through a former scientific name (a genus renamed since): the name
+                    // written is kept, and iNaturalist's current one is shown under it.
+                    if let current = species.currentTaxonName {
+                        Text("Current name: \(Text(verbatim: current).italic())")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 HStack(spacing: 8) {
                     if let category = SpeciesCategory.displayName(species.category) {

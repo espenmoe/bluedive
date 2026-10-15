@@ -38,6 +38,19 @@ enum INaturalistService {
         /// The default photo cannot be stored (all rights reserved): another photo of the taxon
         /// may be used instead (`previewPhotos(for:)`).
         let needsAlternativePhoto: Bool
+        /// The name the search matched (iNaturalist's `matched_term`): the taxon's name, one of
+        /// its common names, or a former scientific name ("Gobiusculus flavescens" for
+        /// Pomatoschistus flavescens).
+        let matchedTerm: String?
+
+        /// The former scientific name the search found the taxon through, if it was one: a
+        /// matched name that differs from the taxon's and reads as a scientific name (a
+        /// common name matched is not one).
+        var formerName: String? {
+            guard let matchedTerm, matchedTerm.caseInsensitiveCompare(name) != .orderedSame,
+                  ScientificNameDetector.looksScientific(matchedTerm) else { return nil }
+            return matchedTerm
+        }
     }
 
     /// Full details of one taxon.
@@ -97,7 +110,8 @@ enum INaturalistService {
             return TaxonSummary(id: $0.id, name: $0.name, rank: $0.rank,
                                 commonName: $0.preferredCommonName ?? $0.englishCommonName,
                                 photoURL: defaultIsOpen ? $0.defaultPhoto?.squareURL.flatMap(URL.init(string:)) : nil,
-                                needsAlternativePhoto: !defaultIsOpen)
+                                needsAlternativePhoto: !defaultIsOpen,
+                                matchedTerm: $0.matchedTerm)
         }
     }
 
@@ -143,18 +157,51 @@ enum INaturalistService {
     /// species — or nil. A search lists several taxa with one name (a species "complex" before
     /// the species, the same genus name in two kingdoms): only one of the expected rank is
     /// linked without asking, and none when that is ambiguous.
+    ///
+    /// When no taxon has that name, `name` may be a former scientific name (a keyword written
+    /// before a genus was renamed): the taxon the search found through it is used when it is
+    /// the only one of the expected rank and iNaturalist's inactive taxon of that name points
+    /// to it alone (`currentTaxonID(forFormerName:)`, one more request a second later). A name
+    /// split into several species, or a common name matched, links nothing.
     static func exactMatch(for name: String, languageCode: String) async throws -> TaxonSummary? {
         let results = try await search(name, languageCode: languageCode)
-        let matching = results.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
-        let words = name.split(separator: " ").filter { $0 != "×" }.count
-        let expected: Set<String>
-        switch words {
-        case 1: expected = ["genus", "family", "order", "class", "phylum", "kingdom", "subgenus"]
-        case 2: expected = ["species", "hybrid"]
-        default: expected = ["subspecies", "variety", "form"]
+        let expected = expectedRanks(for: name)
+        let ofRank = results.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame && expected.contains($0.rank) }
+        guard ofRank.isEmpty else { return ofRank.count == 1 ? ofRank.first : nil }
+        let renamed = results.filter {
+            $0.matchedTerm?.caseInsensitiveCompare(name) == .orderedSame && expected.contains($0.rank)
         }
-        let ofRank = matching.filter { expected.contains($0.rank) }
-        return ofRank.count == 1 ? ofRank.first : nil
+        guard renamed.count == 1, let candidate = renamed.first else { return nil }
+        try await Task.sleep(for: .seconds(1))
+        return try await currentTaxonID(forFormerName: name) == candidate.id ? candidate : nil
+    }
+
+    /// The ranks a scientific name's form implies (see `exactMatch`).
+    private static func expectedRanks(for name: String) -> Set<String> {
+        switch name.split(separator: " ").filter({ $0 != "×" }).count {
+        case 1: return ["genus", "family", "order", "class", "phylum", "kingdom", "subgenus"]
+        case 2: return ["species", "hybrid"]
+        default: return ["subspecies", "variety", "form"]
+        }
+    }
+
+    /// The current taxon of a former scientific name: iNaturalist keeps a renamed taxon as an
+    /// inactive one that points to the taxa replacing it. Nil unless exactly one inactive taxon
+    /// of the expected rank has that name and it points to exactly one taxon.
+    static func currentTaxonID(forFormerName name: String) async throws -> Int? {
+        let response: SearchResponse = try await get(path: "taxa", query: [
+            URLQueryItem(name: "q", value: name),
+            URLQueryItem(name: "is_active", value: "false"),
+            URLQueryItem(name: "per_page", value: "20"),
+            URLQueryItem(name: "fields", value: Fields.inactive)
+        ])
+        let expected = expectedRanks(for: name)
+        let named = response.results.filter {
+            $0.name.caseInsensitiveCompare(name) == .orderedSame && expected.contains($0.rank)
+        }
+        guard named.count == 1, let current = named.first?.currentSynonymousTaxonIDs,
+              current.count == 1 else { return nil }
+        return current.first
     }
 
     static func taxon(id: Int, languageCode: String,
@@ -241,8 +288,10 @@ enum INaturalistService {
             ["square_url", "medium_url", "attribution", "license_code"].map { "\(prefix).\($0)" }.joined(separator: ",")
         }
         private static let base = "id,name,rank,preferred_common_name,english_common_name"
-        /// Search results: names and the default photo.
-        static let search = "\(base),\(photo("default_photo"))"
+        /// Search results: names, the name matched and the default photo.
+        static let search = "\(base),matched_term,\(photo("default_photo"))"
+        /// Inactive taxa: the taxa that replace them.
+        static let inactive = "id,name,rank,current_synonymous_taxon_ids"
         /// Photo previews: the default photo and the taxon's other photos.
         static let photos = "\(search),\(photo("taxon_photos.photo")),taxon_photos.taxon.id"
         /// Full details: photos, Wikipedia and the classification.
@@ -265,9 +314,15 @@ enum INaturalistService {
         /// The taxon's photos, default first (detail requests only).
         let taxonPhotos: [TaxonPhoto]?
         let ancestors: [Ancestor]?
+        /// Search requests only.
+        let matchedTerm: String?
+        /// Inactive taxa only (`currentTaxonID(forFormerName:)`).
+        let currentSynonymousTaxonIDs: [Int]?
 
         enum CodingKeys: String, CodingKey {
             case id, name, rank, ancestors
+            case matchedTerm = "matched_term"
+            case currentSynonymousTaxonIDs = "current_synonymous_taxon_ids"
             case taxonPhotos = "taxon_photos"
             case preferredCommonName = "preferred_common_name"
             case englishCommonName = "english_common_name"
@@ -324,6 +379,16 @@ extension Species {
     /// Name at a rank ("class", "order", "family", …), if known.
     func taxonName(rank: String) -> String? {
         taxonomy.first { $0.rank == rank }?.name
+    }
+
+    /// The scientific name of the taxon the species is linked to, when it is not the species'
+    /// own scientific name: linked through a former name (a genus renamed since), the name
+    /// written is kept and this one is shown with it ("Current name: …").
+    var currentTaxonName: String? {
+        guard let taxonID = inatTaxonID, let scientific = scientificName, !scientific.isEmpty,
+              let linked = taxonomy.last, linked.id == taxonID,
+              SpeciesCatalog.key(linked.name) != SpeciesCatalog.key(scientific) else { return nil }
+        return linked.name
     }
 
     /// "Actinopterygii (Ray-finned Fishes)": a group's Latin name with its common name when known.
@@ -415,19 +480,23 @@ enum INaturalistUpdater {
     /// context of its own, and every field is decided and saved with no suspension in between,
     /// so an edit saved during the requests and the download (a rename, a category, an image)
     /// is never overwritten. With `lookupOf`, the update is skipped unless the species still
-    /// waits for a lookup of that name (`lookupName(of:)`). `allowNameSwap: false` keeps the
+    /// waits for a lookup of that name (`lookupName(of:)`; with `retryingNotFound`, a new
+    /// lookup of a species not found, `retryName(of:)`). `allowNameSwap: false` keeps the
     /// common name the caller decided on (the new species form, which already offered the swap).
     @discardableResult
     static func apply(_ taxon: INaturalistService.Taxon, toSpecies id: PersistentIdentifier,
                       container: ModelContainer, lookupOf name: String? = nil,
-                      allowNameSwap: Bool = true) async -> Bool {
+                      retryingNotFound: Bool = false, allowNameSwap: Bool = true) async -> Bool {
         let photo = await featuredPhoto(of: taxon, forSpecies: id, container: container)
         let context = taxonomyContext(container)
         guard let species = fetchSpecies(id, in: context) else { return false }
         if let name {
-            guard let pending = lookupName(of: species),
+            guard let pending = retryingNotFound ? retryName(of: species) : lookupName(of: species),
                   SpeciesCatalog.key(pending) == SpeciesCatalog.key(name) else { return false }
         }
+        // The former scientific name the taxon was found through (`exactMatch`), if it was: a
+        // species named only by it keeps it as another name when it takes the current names.
+        let formerNameKey = name.map(SpeciesCatalog.key).flatMap { $0 != SpeciesCatalog.key(taxon.name) ? $0 : nil }
         // Re-linked to another taxon (a correction in the lookup sheet): what came from the
         // previous taxon is replaced — its names in every language, its Creative Commons photo
         // (an image with a credit; the user's own image has none and is kept), and a scientific
@@ -473,10 +542,19 @@ enum INaturalistUpdater {
         let commonKey = SpeciesCatalog.key(species.commonName)
         let commonFromPreviousTaxon = previousTaxonName.map { SpeciesCatalog.key($0) == commonKey } ?? false
             || previousCommonNames.contains(commonKey)
+        // A common name that is the former scientific name looked up is a placeholder as well.
+        let commonIsFormerName = formerNameKey == commonKey
         let commonIsPlaceholder = commonKey == SpeciesCatalog.key(taxon.name) || commonFromPreviousTaxon
+            || commonIsFormerName
         let usesINaturalistNames = allowNameSwap && UserPreferences.shared.useINaturalistCommonNames
         if commonIsPlaceholder, commonFromPreviousTaxon || usesINaturalistNames {
             if let commonName, others.species(named: commonName) == nil {
+                // The former name stays another name, so the keywords and sightings written
+                // with it are still recognised — unless it is still the scientific name.
+                if commonIsFormerName, SpeciesCatalog.key(species.scientificName ?? "") != commonKey,
+                   !(species.altNames ?? []).contains(where: { SpeciesCatalog.key($0) == commonKey }) {
+                    species.altNames = (species.altNames ?? []) + [species.commonName]
+                }
                 species.commonName = commonName
                 // The sightings recorded under that name join it, as when a species is created.
                 SpeciesCatalog.linkUnlinkedSightings(named: [commonName], to: species, in: context)
@@ -594,6 +672,41 @@ enum INaturalistUpdater {
         return ScientificNameDetector.looksScientific(common) ? common : nil
     }
 
+    /// The name a new lookup of a species looked up without a match asks for
+    /// (`updateAll(formerNamesOnly: true)`): its scientific name, else a common name written as
+    /// one, as `lookupName(of:)` — for a species not linked whose lookup is recorded.
+    static func retryName(of species: Species) -> String? {
+        guard species.inatTaxonID == nil, species.inatFetchedAt != nil else { return nil }
+        if let scientific = species.scientificName, !scientific.isEmpty { return scientific }
+        let common = species.commonName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ScientificNameDetector.looksScientific(common) ? common : nil
+    }
+
+    /// The taxon an automatic lookup of `name` links the species to (`exactMatch`), or nil. A
+    /// taxon found through a former scientific name is not used when another species is
+    /// linked to it already: both are then the same species, which the user can merge. With
+    /// `formerNamesOnly`, only a taxon found through a former name is used — the "not found"
+    /// mark is shared with a taxon declined in the new species form ("Don't Link"), whose
+    /// scientific name is the declined taxon's own, so a new lookup never links it.
+    private static func automaticMatch(for name: String, speciesID: PersistentIdentifier,
+                                       container: ModelContainer, languageCode: String,
+                                       formerNamesOnly: Bool = false) async throws -> INaturalistService.TaxonSummary? {
+        guard let match = try await INaturalistService.exactMatch(for: name, languageCode: languageCode) else { return nil }
+        let viaFormerName = SpeciesCatalog.key(match.name) != SpeciesCatalog.key(name)
+        if formerNamesOnly, !viaFormerName { return nil }
+        if viaFormerName, isLinked(taxonID: match.id, toSpeciesOtherThan: speciesID, container: container) { return nil }
+        return match
+    }
+
+    /// Whether a species other than `id` is linked to the taxon.
+    private static func isLinked(taxonID: Int, toSpeciesOtherThan id: PersistentIdentifier,
+                                 container: ModelContainer) -> Bool {
+        let context = taxonomyContext(container)
+        let target: Int? = taxonID
+        let descriptor = FetchDescriptor<Species>(predicate: #Predicate { $0.inatTaxonID == target })
+        return ((try? context.fetch(descriptor)) ?? []).contains { $0.persistentModelID != id }
+    }
+
     enum LookupOutcome {
         /// Nothing asked: lookups off, no name to look up, already linked or already looked up.
         case skipped
@@ -619,7 +732,8 @@ enum INaturalistUpdater {
               let name = lookupName(of: species) else { return .skipped }
         let language = INaturalistService.nameLanguageCode
         do {
-            guard let match = try await INaturalistService.exactMatch(for: name, languageCode: language) else {
+            guard let match = try await automaticMatch(for: name, speciesID: species.persistentModelID,
+                                                       container: context.container, languageCode: language) else {
                 // Recorded on the species as saved now, if it still waits for this lookup.
                 let fresh = taxonomyContext(context.container)
                 guard let saved = fetchSpecies(species.persistentModelID, in: fresh),
@@ -744,11 +858,19 @@ enum INaturalistUpdater {
     /// limit of about one request per second), stopping at the first network or service error.
     /// Each species is read again in a fresh context just before its update (see
     /// `fetchCommonNames`): one linked, renamed or deleted meanwhile is skipped.
-    static func updateAll(container: ModelContainer, progress: (BatchStatus) -> Void) async -> BatchStatus {
+    ///
+    /// With `formerNamesOnly`, looks up again the species looked up without a match
+    /// (`retryName(of:)`), linking only those found through a former scientific name
+    /// (`automaticMatch`); the others keep their "not found" mark.
+    static func updateAll(container: ModelContainer, formerNamesOnly: Bool = false,
+                          progress: (BatchStatus) -> Void) async -> BatchStatus {
         let pending: [(id: PersistentIdentifier, name: String)] = {
             let context = taxonomyContext(container)
-            return ((try? context.fetch(FetchDescriptor<Species>())) ?? [])
-                .filter(needsLookup)
+            let all = (try? context.fetch(FetchDescriptor<Species>())) ?? []
+            if formerNamesOnly {
+                return all.compactMap { species in retryName(of: species).map { (species.persistentModelID, $0) } }
+            }
+            return all.filter(needsLookup)
                 .compactMap { species in species.scientificName.map { (species.persistentModelID, $0) } }
         }()
         let language = INaturalistService.nameLanguageCode
@@ -757,7 +879,8 @@ enum INaturalistUpdater {
         for (index, item) in pending.enumerated() {
             if Task.isCancelled { return .stopped(updated: updated) }
             do {
-                let match = try await INaturalistService.exactMatch(for: item.name, languageCode: language)
+                let match = try await automaticMatch(for: item.name, speciesID: item.id, container: container,
+                                                     languageCode: language, formerNamesOnly: formerNamesOnly)
                 var taxon: INaturalistService.Taxon?
                 if let match {
                     try await Task.sleep(for: .seconds(1))
@@ -767,7 +890,11 @@ enum INaturalistUpdater {
                 // Applied to the species as saved now, if it still waits for a lookup under the
                 // same name (`apply` checks it after the photo download).
                 if let taxon {
-                    if await apply(taxon, toSpecies: item.id, container: container, lookupOf: item.name) { updated += 1 }
+                    if await apply(taxon, toSpecies: item.id, container: container, lookupOf: item.name,
+                                   retryingNotFound: formerNamesOnly) { updated += 1 }
+                } else if formerNamesOnly {
+                    // Already marked as looked up.
+                    notFound += 1
                 } else {
                     let context = taxonomyContext(container)
                     if let species = fetchSpecies(item.id, in: context), needsLookup(species),

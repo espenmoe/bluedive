@@ -43,6 +43,8 @@ struct MarineLifeView: View {
     @State private var categoryFilter: String = ""
     /// Shows only the catalogue species not linked to iNaturalist yet.
     @State private var notLinkedFilter = false
+    /// Only species whose scientific name is a former one (`SpeciesAggregate.currentName`).
+    @State private var formerNameFilter = false
     /// iNaturalist taxon to show only, as "rank|name" ("" = all), e.g. "family|Nephropidae".
     @State private var taxonFilter: String = ""
     @State private var showAddSpecies = false
@@ -82,6 +84,9 @@ struct MarineLifeView: View {
         let id: String
         let name: String         // common name, or the most common spelling of the sightings
         let scientificName: String?
+        /// The linked taxon's scientific name when it is not `scientificName` (linked through a
+        /// former name, `Species.currentTaxonName`).
+        let currentName: String?
         let category: String?
         let speciesID: PersistentIdentifier?
         let entryCount: Int      // total number of sighting records
@@ -210,12 +215,14 @@ struct MarineLifeView: View {
         return cachedSpecies.filter { aggregate in
             if !categoryFilter.isEmpty, aggregate.category != categoryFilter { return false }
             if notLinkedFilterActive, aggregate.speciesID == nil || aggregate.isLinked { return false }
+            if formerNameFilter, aggregate.currentName == nil { return false }
             if let taxonIDs {
                 guard let id = aggregate.speciesID, taxonIDs.contains(id) else { return false }
             }
             guard !trimmed.isEmpty else { return true }
             return aggregate.name.localizedCaseInsensitiveContains(trimmed)
                 || (aggregate.scientificName?.localizedCaseInsensitiveContains(trimmed) ?? false)
+                || (aggregate.currentName?.localizedCaseInsensitiveContains(trimmed) ?? false)
                 || aggregate.otherNames.contains { $0.localizedCaseInsensitiveContains(trimmed) }
                 || aggregate.category.map { matchingCategories.contains($0) } ?? false
         }
@@ -248,8 +255,10 @@ struct MarineLifeView: View {
         var speciesInfo: [PersistentIdentifier: (id: UUID, name: String, scientific: String?, category: String?,
                                                  otherNames: Set<String>)] = [:]
         var linkedSpecies = Set<PersistentIdentifier>()
+        var currentNames: [PersistentIdentifier: String] = [:]
         for species in catalogue {
             if species.inatTaxonID != nil { linkedSpecies.insert(species.persistentModelID) }
+            if let current = species.currentTaxonName { currentNames[species.persistentModelID] = current }
             let names = Set([species.commonName] + (species.altNames ?? []) + species.inatCommonNames.values.filter { !$0.isEmpty })
             speciesInfo[species.persistentModelID] = (species.id, species.displayName, species.scientificName,
                                                       species.category, names)
@@ -305,6 +314,7 @@ struct MarineLifeView: View {
                 id: key,
                 name: value.name,
                 scientificName: value.scientific,
+                currentName: value.speciesID.flatMap { currentNames[$0] },
                 category: value.category,
                 speciesID: value.speciesID,
                 entryCount: value.entryCount,
@@ -488,10 +498,14 @@ struct MarineLifeView: View {
                     taxonNames: Self.filterRanks.map { (rank: $0, names: taxonNames(rank: $0)) },
                     groupCommonNames: cachedGroupCommonNames,
                     showsNotLinked: UserPreferences.shared.fetchTaxonomyOnline,
+                    // Offered while a species has a former name, or the filter is on (so it
+                    // can be turned off).
+                    showsFormerName: formerNameFilter || cachedSpecies.contains { $0.currentName != nil },
                     activeFilterCount: activeFilterCount,
                     categoryFilter: $categoryFilter,
                     taxonFilter: $taxonFilter,
                     notLinkedFilter: $notLinkedFilter,
+                    formerNameFilter: $formerNameFilter,
                     reset: resetFilters
                 )
                 .standardSheetPresentation()
@@ -643,15 +657,17 @@ struct MarineLifeView: View {
         )
     }
 
-    /// Category, group and "not linked" filters in use.
+    /// Category, group, "not linked" and "former name" filters in use.
     private var activeFilterCount: Int {
         (categoryFilter.isEmpty ? 0 : 1) + (taxonFilter.isEmpty ? 0 : 1) + (notLinkedFilterActive ? 1 : 0)
+            + (formerNameFilter ? 1 : 0)
     }
 
     private func resetFilters() {
         categoryFilter = ""
         taxonFilter = ""
         notLinkedFilter = false
+        formerNameFilter = false
     }
 
     // MARK: - Statistics
@@ -992,15 +1008,21 @@ struct MarineLifeView: View {
             .lineLimit(1)
     }
 
-    /// The scientific name, or "Not in the catalogue" for sightings with no catalogue species.
+    /// The scientific name (with the linked taxon's current name under it when they differ), or
+    /// "Not in the catalogue" for sightings with no catalogue species.
     @ViewBuilder
     private func speciesSubtitle(_ species: SpeciesAggregate) -> some View {
         if let scientific = species.scientificName, !scientific.isEmpty {
-            Text(verbatim: scientific)
-                .font(.caption)
-                .italic()
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: scientific)
+                    .italic()
+                if let current = species.currentName {
+                    Text("Current name: \(Text(verbatim: current).italic())")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
         } else if species.speciesID == nil {
             Text("Not in the catalogue")
                 .font(.caption)
@@ -1046,13 +1068,14 @@ enum MarineLifeColumns {
     static let image: CGFloat = 32
     /// Minimum (and ideal) width of the flexible name column.
     static let name: CGFloat = 200
-    static let scientificName: CGFloat = 200
+    /// Wide enough for "Current name: …" under a scientific name (`speciesSubtitle`).
+    static let scientificName: CGFloat = 250
     static let lastSeen: CGFloat = 130
     static let quantities: CGFloat = 240
     static let dives: CGFloat = 90
 
     /// Width of the one-line row: every column, the spacing between them and the row's
-    /// horizontal padding (960 pt).
+    /// horizontal padding (1010 pt, within `OneLineRowsLayout.rowWidth`).
     static let rowWidth: CGFloat = image + name + scientificName + lastSeen + quantities + dives
         + spacing * 5 + 8
 }
@@ -1197,11 +1220,14 @@ struct MarineLifeFilterSheet: View {
     let groupCommonNames: [String: String]
     /// The "not linked" filter is offered only while iNaturalist lookups are on.
     let showsNotLinked: Bool
+    /// The "former name" filter is offered only while a species has one (or it is on).
+    let showsFormerName: Bool
     let activeFilterCount: Int
 
     @Binding var categoryFilter: String
     @Binding var taxonFilter: String
     @Binding var notLinkedFilter: Bool
+    @Binding var formerNameFilter: Bool
     let reset: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -1233,6 +1259,9 @@ struct MarineLifeFilterSheet: View {
                     if showsNotLinked {
                         notLinkedSection
                     }
+                    if showsFormerName {
+                        formerNameSection
+                    }
                     if !categoryChoices.isEmpty {
                         categorySection
                     }
@@ -1240,7 +1269,7 @@ struct MarineLifeFilterSheet: View {
                         groupSection
                     }
                     // Unlike the Dives sheet, no card is always shown: explain how to get some.
-                    if !showsNotLinked && categoryChoices.isEmpty && taxonChoices.isEmpty {
+                    if !showsNotLinked && !showsFormerName && categoryChoices.isEmpty && taxonChoices.isEmpty {
                         ContentUnavailableView(
                             "No filters available",
                             systemImage: "line.3.horizontal.decrease",
@@ -1275,6 +1304,23 @@ struct MarineLifeFilterSheet: View {
                     .font(.title3)
                     .foregroundStyle(.cyan)
                 Text("Not Linked to iNaturalist")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+            }
+            .padding(.horizontal, 4)
+        }
+        .fullWidthSwitch()
+        .filterCardStyle()
+    }
+
+    /// Species linked through a former scientific name (shown with "Current name: …").
+    private var formerNameSection: some View {
+        Toggle(isOn: $formerNameFilter.animation()) {
+            HStack(spacing: 10) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.title3)
+                    .foregroundStyle(.cyan)
+                Text("Former Scientific Name")
                     .font(.headline)
                     .fontWeight(.semibold)
             }
