@@ -104,6 +104,9 @@ struct MainTabView: View {
     @State private var gearToOpen: Gear? = nil
     @State private var certToRenew: Certification? = nil
     @State private var insuranceToRenew: DivingInsurance? = nil
+    /// App-wide sheets opened from every tab's toolbar (`MainWindowLeadingToolbar`).
+    @State private var showSettings = false
+    @State private var showSyncStatus = false
 
     var body: some View {
         ZStack {
@@ -160,6 +163,9 @@ struct MainTabView: View {
                     .tag(3)
             }
             .accentColor(.cyan)
+            // Every tab's Settings and iCloud toolbar buttons open the sheets presented here.
+            .environment(\.showSettingsSheet, ShowSheetAction { showSettings = true })
+            .environment(\.showSyncStatusSheet, ShowSheetAction { showSyncStatus = true })
             // The only @Query Dive owner: keeps DiveStore's caches current whatever tab is
             // shown (see DiveDataFeeder).
             .background(DiveDataFeeder())
@@ -182,7 +188,7 @@ struct MainTabView: View {
         }
         #if os(macOS)
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
-            selectedTab = 0
+            showSettings = true
         }
         #endif
         .onReceive(NotificationCenter.default.publisher(for: .openEquipmentForService)) { note in
@@ -318,6 +324,14 @@ struct MainTabView: View {
         }
         .sheet(item: $insuranceToRenew) { insurance in
             AddInsuranceView(insuranceToEdit: insurance)
+                .standardSheetPresentation()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .standardSheetPresentation()
+        }
+        .sheet(isPresented: $showSyncStatus) {
+            CloudKitSyncStatusView()
                 .standardSheetPresentation()
         }
     }

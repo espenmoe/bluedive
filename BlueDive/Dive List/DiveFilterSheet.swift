@@ -1018,13 +1018,30 @@ struct FilterSectionHeader: View {
 
 struct ModernFilterChip: View {
     let label: String
+    /// A localized key shown instead of `label` (e.g. a gear category's "gear.category.X").
+    private var labelKey: LocalizedStringKey?
     let isSelected: Bool
     var color: Color = .cyan
     let action: () -> Void
-    
+
+    init(label: String, isSelected: Bool, color: Color = .cyan, action: @escaping () -> Void) {
+        self.label = label
+        self.isSelected = isSelected
+        self.color = color
+        self.action = action
+    }
+
+    init(_ labelKey: LocalizedStringKey, isSelected: Bool, color: Color = .cyan, action: @escaping () -> Void) {
+        self.label = ""
+        self.labelKey = labelKey
+        self.isSelected = isSelected
+        self.color = color
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
-            Text(label)
+            (labelKey.map { Text($0) } ?? Text(label))
                 .font(.subheadline)
                 .fontWeight(isSelected ? .semibold : .medium)
                 .padding(.horizontal, 16)
@@ -1040,6 +1057,8 @@ struct ModernFilterChip: View {
                 .foregroundStyle(isSelected ? color : .secondary)
         }
         .buttonStyle(.plain)
+        // VoiceOver says which chip is the selected filter.
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

@@ -54,7 +54,6 @@ struct ContentView: View {
     @State var showFileExporter = false
     @State var exportContentType: UTType = .xml
     @State private var showMergeDivesSheet = false
-    @State private var showSettings = false
     @State private var showFingerprintDebug = false
     /// Bundles everything the import-format picker needs in a single optional.
     /// The sheet is driven by this value so SwiftUI always has the data ready
@@ -98,10 +97,7 @@ struct ContentView: View {
     @AppStorage(DiverFilter.storageKey) private var selectedDiver: String = ""
     @AppStorage("showCalculatorsMenu") private var showCalculatorsMenu = false
     @AppStorage("autoSequenceEnabled") private var autoSequenceEnabled = false
-    @AppStorage(BlueDiveApp.iCloudSyncEnabledKey) private var iCloudSyncEnabled = true
-    @Environment(CloudKitSyncMonitor.self) private var syncMonitor
     @Environment(FileImportCoordinator.self) var importCoordinator
-    @State private var showSyncStatusPopover = false
     @State private var collapsedDiverSections: Set<String> = []
     #if os(macOS)
     /// Whether the dive rows show their one-line version (wide window), and their width, reported
@@ -259,16 +255,21 @@ struct ContentView: View {
         onDelete: @escaping (IndexSet) -> Void,
         @ViewBuilder row: @escaping (DiveSummary) -> Row
     ) -> some View {
+        let firstID = summaries.first?.id
         let lastID = summaries.last?.id
         return ForEach(summaries) { summary in
             row(summary)
             #if os(macOS)
             .listRowBackground(Color.primary.opacity(0.07)
                                    .overlay { DiveRowSelectionHighlight(selection: listSelection, summaryID: summary.id) },
-                               macSeparator: summary.id != lastID)
+                               macFirst: summary.id == firstID, macLast: summary.id == lastID)
             #else
             .listRowBackground(Color.primary.opacity(0.07),
-                               macSeparator: summary.id != lastID)
+                               macFirst: summary.id == firstID, macLast: summary.id == lastID)
+            // iOS starts the separator at the row's first Text (here the "#123" badge, whose
+            // position varies with its width): start it at the row's leading edge instead, as
+            // in the Equipment, Marine Life and Documents lists.
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
             #endif
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                 moveButton(for: summary.id)
@@ -357,11 +358,7 @@ struct ContentView: View {
                 }
             }
 
-            #if os(iOS)
-            .searchable(text: $store.searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Site, location, buddy, country, type, tag, dive #…")
-            #else
-            .searchable(text: $store.searchText, prompt: "Site, location, buddy, country, type, tag, dive #…")
-            #endif
+            .mainListSearchable(text: $store.searchText, prompt: Text("Site, location, buddy, country, type, tag, dive #…"))
             .animation(.easeInOut(duration: 0.3), value: store.searchText)
             .toolbar { toolbarContent }
             #if os(iOS)
@@ -393,10 +390,6 @@ struct ContentView: View {
                     sortOrder: $store.sortOrder
                 )
                 .standardSheetPresentation()
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-                    .standardSheetPresentation()
             }
             .sheet(isPresented: $showMinimumGasPlanning) {
                 MinimumGasCalculatorView()
@@ -447,11 +440,6 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .addDiveBluetooth)) { _ in
                 showScannerSheet = true
             }
-            #if os(macOS)
-            .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
-                showSettings = true
-            }
-            #endif
             .sheet(isPresented: $showMergeDivesSheet) {
                 MergeDivesSheet(dives: store.cachedFilteredDives) { diveA, diveB in
                     mergeDives(diveA, with: diveB)
@@ -662,10 +650,6 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: isExporting)
         .animation(.linear(duration: 0.15), value: exportProgressCurrent)
-        .sheet(isPresented: $showSyncStatusPopover) {
-            CloudKitSyncStatusView()
-                .standardSheetPresentation()
-        }
         .onAppear {
             // DiveStore's caches are built and kept current by DiveDataFeeder (MainTabView).
             // Cold-launch: onOpenURL may fire before this view mounts, so check
@@ -907,6 +891,8 @@ struct ContentView: View {
                     }
                     .contentMargins(.top, 0, for: .scrollContent)
                     #if os(macOS)
+                    // The rows are cards inset from the window's edges (see `MacListCard`).
+                    .macCardListMargins()
                     // Column labels pinned above the list, once for all diver sections.
                     .pinnedColumnHeader(diveListLayout) { DiveListColumnHeader() }
                     .environment(diveListLayout)
@@ -922,6 +908,8 @@ struct ContentView: View {
                     .listStyle(.plain)
                     .contentMargins(.top, 0, for: .scrollContent)
                     #if os(macOS)
+                    // The rows are cards inset from the window's edges (see `MacListCard`).
+                    .macCardListMargins()
                     // Column labels pinned above the list, so they stay visible while it scrolls.
                     .pinnedColumnHeader(diveListLayout) { DiveListColumnHeader() }
                     .environment(diveListLayout)
@@ -932,56 +920,6 @@ struct ContentView: View {
     }
 
     // MARK: - Toolbar
-
-    @ViewBuilder
-    private var cloudSyncToolbarItem: some View {
-        Button { showSyncStatusPopover = true } label: { cloudSyncIcon }
-            .help("iCloud Sync Status")
-            .accessibilityLabel(Text("iCloud Sync Status"))
-            // Set directly on the Button rather than on a descendant inside its label,
-            // since it's undocumented whether SwiftUI promotes a descendant's
-            // .accessibilityValue to the enclosing Button's own accessibility element.
-            .accessibilityValue(cloudSyncAccessibilityValue)
-    }
-
-    private var cloudSyncAccessibilityValue: Text {
-        if !iCloudSyncEnabled {
-            return Text("iCloud sync is turned off")
-        } else if syncMonitor.isSyncing {
-            return Text("Syncing")
-        } else if syncMonitor.hasError {
-            return Text("Sync error")
-        } else if let d = syncMonitor.lastSyncDate, Date().timeIntervalSince(d) < 300 {
-            return Text("Recently synced")
-        } else {
-            return Text("Idle")
-        }
-    }
-
-    @ViewBuilder
-    private var cloudSyncIcon: some View {
-        if !iCloudSyncEnabled {
-            Image(systemName: "icloud.slash")
-                .foregroundStyle(.secondary)
-        } else if syncMonitor.isSyncing {
-            // An animated symbol, not a ProgressView: macOS only shares a toolbar glass capsule
-            // between items whose labels are plain images/text, so a ProgressView label would
-            // split this button from the Settings/diver-filter group while syncing.
-            Image(systemName: "arrow.clockwise.icloud")
-                .foregroundStyle(.cyan)
-                .symbolEffect(.pulse)
-        } else if syncMonitor.hasError {
-            Image(systemName: "exclamationmark.icloud")
-                .foregroundStyle(.orange)
-        } else if let d = syncMonitor.lastSyncDate, Date().timeIntervalSince(d) < 300 {
-            Image(systemName: "checkmark.icloud")
-                .foregroundStyle(.cyan)
-        } else {
-            Image(systemName: "icloud")
-                .foregroundStyle(.secondary)
-        }
-    }
-
 
     // Sort order is a persisted, durable preference (unlike filters, which are
     // scoped to a single browsing session) — see DiveStore.sortOrder. The filter
@@ -1013,8 +951,8 @@ struct ContentView: View {
         ToolbarItemGroup(placement: .navigation) {
             DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver).picker
                 .toolbarMenuIndicatorHiddenOnMac()
-            settingsButton
-            cloudSyncToolbarItem
+            SettingsToolbarButton()
+            CloudSyncToolbarButton()
             if showCalculatorsMenu {
                 calculatorsMenu
                     .toolbarMenuIndicatorHiddenOnMac()
@@ -1036,10 +974,10 @@ struct ContentView: View {
         // side by SwiftUI when popping back from a pushed detail view, which
         // crams every leading button into the top-right. Matches DiverFilterToolbar.
         ToolbarItem(placement: .topBarLeading) {
-            settingsButton
+            SettingsToolbarButton()
         }
         ToolbarItem(placement: .topBarLeading) {
-            cloudSyncToolbarItem
+            CloudSyncToolbarButton()
         }
         if showCalculatorsMenu {
             ToolbarItem(placement: .topBarLeading) {
@@ -1065,15 +1003,6 @@ struct ContentView: View {
     }
 
     // Main-window toolbar controls, shared by the iOS and macOS toolbar layouts above.
-
-    private var settingsButton: some View {
-        Button(action: { showSettings = true }) {
-            Image(systemName: "gear")
-                .foregroundStyle(.cyan)
-        }
-        .help("Settings")
-        .accessibilityLabel(Text("Settings"))
-    }
 
     private var addDiveMenu: some View {
         Menu {

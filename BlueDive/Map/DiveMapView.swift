@@ -866,6 +866,18 @@ struct DiveMapView: View {
                 }
 
             }
+            // Below the navigation bar, as the Documents tab's section picker: the bar has no
+            // room left for it between the leading and trailing buttons on an iPhone.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Picker("Coordinate Mode", selection: $coordinateMode) {
+                    Text("Entry").tag(MapCoordinateMode.entry)
+                    Text("Exit").tag(MapCoordinateMode.exit)
+                }
+                .fullWidthSegmentedPicker()
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+            }
             .navigationTitle("")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -905,15 +917,7 @@ struct DiveMapView: View {
             .background(mapObservers)
             .background(filterObservers)
             .toolbar {
-                DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
-                ToolbarItem(placement: .principalOutsideTabBar) {
-                    Picker("Coordinate Mode", selection: $coordinateMode) {
-                        Text("Entry").tag(MapCoordinateMode.entry)
-                        Text("Exit").tag(MapCoordinateMode.exit)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 160)
-                }
+                MainWindowLeadingToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
                 #if os(macOS)
                 // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
                 // navigation bar does; separate items (especially menus) get separate capsules.

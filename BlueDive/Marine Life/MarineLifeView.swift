@@ -370,45 +370,65 @@ struct MarineLifeView: View {
                     // Filtered once per body pass: it searches every name of every row.
                     let filteredSpecies = filteredSpecies
                     List {
-                        statsChipRow
-                            .clearListRow()
-
-                        if let (rank, name) = taxonFilterParts {
-                            taxonFilterBanner(rank: rank, name: name)
-                                // The chip row's spacing under it too (macOS ignores vertical
-                                // row insets).
-                                .padding(.bottom, 4)
+                        // On the tab background, without side insets (as Equipment's chip row), so
+                        // they line up with the species card.
+                        listSectionOnIOS {
+                            statsChipRow
                                 .clearListRow()
+                                .listRowInsets(EdgeInsets())
+
+                            if let (rank, name) = taxonFilterParts {
+                                taxonFilterBanner(rank: rank, name: name)
+                                    #if os(macOS)
+                                    // The chip row's spacing under it too: macOS ignores vertical
+                                    // row insets (iOS gets it from bannerRowInsets).
+                                    .padding(.bottom, 4)
+                                    #endif
+                                    .clearListRow()
+                                    .listRowInsets(Self.bannerRowInsets)
+                            }
+
+                            // Names of sightings not in the catalogue (imported, or recorded before
+                            // it), in the dives shown, as "Add to Catalogue…" converts them.
+                            if cachedNotInCatalogueCount > 0 {
+                                notInCatalogueBanner(count: cachedNotInCatalogueCount)
+                                    #if os(macOS)
+                                    .padding(.bottom, 4)
+                                    #endif
+                                    .clearListRow()
+                                    .listRowInsets(Self.bannerRowInsets)
+                            }
                         }
 
-                        // Names of sightings not in the catalogue (imported, or recorded before
-                        // it), in the dives shown, as "Add to Catalogue…" converts them.
-                        if cachedNotInCatalogueCount > 0 {
-                            notInCatalogueBanner(count: cachedNotInCatalogueCount)
-                                .padding(.bottom, 4)
-                                .clearListRow()
-                        }
-
-                        if filteredSpecies.isEmpty {
-                            noMatchesView
-                                .clearListRow()
-                        } else {
-                            speciesRowList(filteredSpecies)
+                        // A section of its own on iOS, so the species rows form one card with
+                        // rounded first and last rows, as in the other tabs.
+                        listSectionOnIOS {
+                            if filteredSpecies.isEmpty {
+                                noMatchesView
+                                    .clearListRow()
+                            } else {
+                                speciesRowList(filteredSpecies)
+                            }
                         }
                     }
-                    #if os(macOS)
-                    // The Dives, Equipment and Documents lists' style, so the rows get the same
-                    // side insets and the one-line rows switch to stacked at the same window
-                    // width (`OneLineRowsLayout.rowWidth`); a `.plain` list gives its rows
-                    // 15 pt more.
+                    // The Dives, Equipment and Documents lists' style: the same side insets and
+                    // rounded row cards on iOS, and on macOS the one-line rows switch to stacked
+                    // at the same window width (`OneLineRowsLayout.rowWidth`).
                     .listStyle(.sidebar)
-                    #else
-                    .listStyle(.plain)
+                    #if os(iOS)
+                    // The species section has no header to fill the standard gap above it (the
+                    // Equipment sections have their category header there).
+                    .listSectionSpacing(8)
+                    // Nor does the first section (the chips): no empty header space above it, so
+                    // the chips sit under the search field, as the Dives list does.
+                    .contentMargins(.top, 0, for: .scrollContent)
                     #endif
                     .scrollContentBackground(.hidden)
                     .environment(\.defaultMinListRowHeight, 0)
                     .contentMargins(.bottom, 30, for: .scrollContent)
                     #if os(macOS)
+                    // The rows are cards inset from the window's edges (see `MacListCard`).
+                    .macCardListMargins()
                     // Column labels pinned to the top of the list, as in the Dives and
                     // Equipment tabs; not over an empty list (no match).
                     .pinnedColumnHeader(speciesListLayout, isShown: !filteredSpecies.isEmpty) {
@@ -423,7 +443,7 @@ struct MarineLifeView: View {
             }
             // No title, as on the other tab roots (the tab bar names the tab).
             .navigationTitle("")
-            .searchable(text: $searchText, prompt: Text("Search marine life…"))
+            .mainListSearchable(text: $searchText, prompt: Text("Search marine life…"))
             .toolbar { toolbarContent }
             .background(AppBackground().ignoresSafeArea())
             .onChange(of: taxonFilter) { _, _ in rebuildTaxonSelection() }
@@ -542,7 +562,7 @@ struct MarineLifeView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
+        MainWindowLeadingToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
 
         #if os(macOS)
         // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
@@ -665,11 +685,28 @@ struct MarineLifeView: View {
         .padding(.vertical, 4)
     }
 
+    /// Banner rows: no side insets, so they line up with the chips and the species card, but
+    /// room above and below so the row does not clip the banner's rounded background.
+    private static let bannerRowInsets = EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0)
+
+    /// A list section on iOS, where `.sidebar` draws each section as a rounded card. On macOS
+    /// the rows as they are: a `.sidebar` list draws no section cards there, and a section
+    /// break would only add a gap above the species rows.
+    @ViewBuilder
+    private func listSectionOnIOS<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        #if os(iOS)
+        Section { content() }
+        #else
+        content()
+        #endif
+    }
+
     // MARK: - Species List
 
     private func speciesRowList(_ filteredSpecies: [SpeciesAggregate]) -> some View {
         ForEach(Array(filteredSpecies.enumerated()), id: \.element.id) { index, species in
-            speciesListRow(index: index, species: species, isLast: index == filteredSpecies.count - 1)
+            speciesListRow(index: index, species: species, isFirst: index == 0,
+                           isLast: index == filteredSpecies.count - 1)
         }
     }
 
@@ -677,7 +714,7 @@ struct MarineLifeView: View {
     /// or sightings not in the catalogue). Only a catalogue species can be swiped
     /// to delete (sightings not in the catalogue have no catalogue entry to delete).
     @ViewBuilder
-    private func speciesListRow(index: Int, species: SpeciesAggregate, isLast: Bool) -> some View {
+    private func speciesListRow(index: Int, species: SpeciesAggregate, isFirst: Bool, isLast: Bool) -> some View {
         let row = Button {
             if let id = species.speciesID {
                 shownSpecies = liveSpecies(id)
@@ -688,8 +725,13 @@ struct MarineLifeView: View {
             speciesRow(index: index, species: species)
         }
         .buttonStyle(.plain)
-        // Same row background as the Dives and Equipment tabs; no separator under the last row.
-        .listRowBackground(Color.primary.opacity(0.07), macSeparator: !isLast)
+        // Same row background as the Dives and Equipment tabs (one card on macOS).
+        .listRowBackground(Color.primary.opacity(0.07), macFirst: isFirst, macLast: isLast)
+        #if os(iOS)
+        // iOS starts the separator at the row's first Text, after the image: start it at the
+        // row's leading edge, as in the Dives list.
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        #endif
 
         if let id = species.speciesID {
             row.swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -1411,8 +1453,8 @@ private extension View {
     }
 }
 
-/// One statistic (icon, label, value in a pill), styled like an unselected Equipment category
-/// chip (`CategoryFilterChip`) but not a button: it only shows the number.
+/// One statistic (icon, label, value in a pill), styled as a filter chip but not a button:
+/// it only shows the number.
 private struct MarineLifeStatChip: View {
     let label: LocalizedStringKey
     let icon: String

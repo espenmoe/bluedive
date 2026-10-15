@@ -190,23 +190,77 @@ func fullWidthPicker<SelectionValue: Hashable, Content: View>(
 
 // MARK: - List row separator
 
-extension View {
-    /// Sets the row background and, on macOS, draws an iOS-style separator line along the
-    /// bottom of the row. The macOS `.sidebar` and `.plain` list styles draw no row separators
-    /// (and the list style has the final say, so `.listRowSeparator(.visible)` can't force
-    /// them); the line is drawn in the row background so it sits on the row's real bottom
-    /// edge. Pass `macSeparator: false` for the last row of a section, as iOS does.
-    /// On iOS this is exactly `.listRowBackground(background)`.
-    func listRowBackground<Background: View>(_ background: Background, macSeparator separator: Bool) -> some View {
+/// Lists whose rows are drawn as iOS-style cards (`listRowBackground(_:macFirst:macLast:)`).
+enum CardList {
+    /// Side inset of a row drawn on the list background (a header, an empty state, a button):
+    /// 16 pt on iOS; 0 on macOS, where the list itself is inset by `MacListCard.margin`
+    /// (`macCardListMargins()`), so the row lines up with the cards.
+    static var clearRowSideInset: CGFloat {
         #if os(macOS)
-        self.listRowBackground(
-            background.overlay(alignment: .bottom) {
-                if separator {
-                    Divider()
-                        .padding(.horizontal, 16)
-                }
-            }
-        )
+        0
+        #else
+        16
+        #endif
+    }
+}
+
+#if os(macOS)
+/// Geometry of the iOS-style row card drawn on macOS by `listRowBackground(_:macFirst:macLast:)`.
+/// macOS has no inset-grouped list style: every list style draws rows edge to edge. The list is
+/// inset by `margin` instead (`macCardListMargins()`) and each row is its card, so a swiped
+/// row's content is clipped at the card's edge, as on iOS.
+enum MacListCard {
+    /// Distance from the window's edges to the list, so to the cards.
+    static let margin: CGFloat = 16
+    static let cornerRadius: CGFloat = 16
+
+    /// Row insets that keep the content inside the card (also the separator line's inset).
+    /// Vertical insets are ignored on macOS.
+    static let rowInsets = EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+}
+
+extension View {
+    /// Insets a main-window list whose rows are cards by `MacListCard.margin` (macOS). Apply it
+    /// to the List before `pinnedColumnHeader`, so the header bar keeps the full width.
+    func macCardListMargins() -> some View {
+        padding(.horizontal, MacListCard.margin)
+    }
+}
+#endif
+
+extension View {
+    /// Sets the row background. On macOS it also draws what the iOS `.sidebar` list style
+    /// draws there: the rows of a section as one card, with rounded top corners on the first
+    /// row and rounded bottom corners on the last row, and a separator line between rows. The
+    /// macOS list styles draw rows edge to edge and no row separators (and the list style has
+    /// the final say, so `.listRowSeparator(.visible)` can't force them); the line is drawn in
+    /// the row background so it sits on the row's real bottom edge. The row content gets
+    /// `MacListCard.rowInsets` so it stays inside the card, and the List needs
+    /// `macCardListMargins()` so the cards are inset from the window's edges.
+    /// Pass `macFirst`/`macLast` for the first/last row of a section (no separator under the
+    /// last row, as iOS does). On iOS this is exactly `.listRowBackground(background)`.
+    func listRowBackground<Background: View>(_ background: Background, macFirst isFirst: Bool, macLast isLast: Bool) -> some View {
+        #if os(macOS)
+        let radius = MacListCard.cornerRadius
+        return self
+            .listRowInsets(MacListCard.rowInsets)
+            .listRowBackground(
+                background
+                    .overlay(alignment: .bottom) {
+                        if !isLast {
+                            Divider()
+                                .padding(.leading, MacListCard.rowInsets.leading)
+                                .padding(.trailing, MacListCard.rowInsets.trailing)
+                        }
+                    }
+                    .clipShape(UnevenRoundedRectangle(
+                        topLeadingRadius: isFirst ? radius : 0,
+                        bottomLeadingRadius: isLast ? radius : 0,
+                        bottomTrailingRadius: isLast ? radius : 0,
+                        topTrailingRadius: isFirst ? radius : 0,
+                        style: .continuous
+                    ))
+            )
         #else
         self.listRowBackground(background)
         #endif
@@ -421,6 +475,22 @@ extension NSColor {
     static var systemGroupedBackground: NSColor { .windowBackgroundColor }
 }
 #endif
+
+// MARK: - Main-window list search
+
+extension View {
+    /// The search field of a main-window tab (Dives, Equipment, Marine Life), the same on
+    /// every tab: on iOS and iPadOS always shown below the navigation bar (the default
+    /// placement hides it until pulled down on iPhone and collapses it to a button on iPad);
+    /// on macOS the toolbar field, always shown.
+    func mainListSearchable(text: Binding<String>, prompt: Text) -> some View {
+        #if os(iOS)
+        searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+        #else
+        searchable(text: text, prompt: prompt)
+        #endif
+    }
+}
 
 // MARK: - Standard sheet presentation
 
@@ -687,9 +757,11 @@ extension View {
 
     /// Shows a column header as a plain List row: no row background or separator. A row, not a
     /// section header, so it has exactly the rows' width and insets (a sidebar section header is
-    /// wider and shrinks on hover for its disclosure chevron, which shifts the labels).
+    /// wider and shrinks on hover for its disclosure chevron, which shifts the labels). It has
+    /// the card rows' insets (`MacListCard.rowInsets`), so its labels stay over their columns.
     func columnHeaderRow() -> some View {
         self
+            .listRowInsets(MacListCard.rowInsets)
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
     }

@@ -213,7 +213,7 @@ struct DocumentsView: View {
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 0, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 6, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                             }
 
                             if filteredCertifications.isEmpty {
@@ -225,7 +225,7 @@ struct DocumentsView: View {
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                                 AddDocumentSection(label: "Add Certification", icon: "graduationcap", color: .cyan) { showAddCertification = true }
                             } else if !groupedCertifications.isEmpty {
                                 ForEach(groupedCertifications, id: \.key) { agency, certs in
@@ -241,7 +241,7 @@ struct DocumentsView: View {
                                         }
                                         #endif
                                         ForEach(certs) { cert in
-                                            certRow(cert, isLast: cert.id == certs.last?.id)
+                                            certRow(cert, isFirst: cert.id == certs.first?.id, isLast: cert.id == certs.last?.id)
                                         }
                                     } header: {
                                         Text(agency)
@@ -259,7 +259,7 @@ struct DocumentsView: View {
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                             }
                         }
 
@@ -275,7 +275,7 @@ struct DocumentsView: View {
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 0, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 6, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                             }
 
                             if filteredInsurances.isEmpty {
@@ -287,7 +287,7 @@ struct DocumentsView: View {
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                                 AddDocumentSection(label: "Add Insurance", icon: "shield", color: .blue) { showAddInsurance = true }
                             } else if !groupedInsurances.isEmpty {
                                 ForEach(groupedInsurances, id: \.key) { insurer, policies in
@@ -304,7 +304,7 @@ struct DocumentsView: View {
                                         }
                                         #endif
                                         ForEach(policies) { insurance in
-                                            insuranceRow(insurance, isLast: insurance.id == policies.last?.id)
+                                            insuranceRow(insurance, isFirst: insurance.id == policies.first?.id, isLast: insurance.id == policies.last?.id)
                                         }
                                     } header: {
                                         Text(displayName)
@@ -322,7 +322,7 @@ struct DocumentsView: View {
                                 }
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                             }
                         }
 
@@ -336,7 +336,7 @@ struct DocumentsView: View {
                             }
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                            .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                             AddDocumentSection(label: "Add Certification", icon: "graduationcap", color: .cyan) { showAddCertification = true }
                         }
 
@@ -349,13 +349,15 @@ struct DocumentsView: View {
                             }
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                            .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
                             AddDocumentSection(label: "Add Insurance", icon: "shield", color: .blue) { showAddInsurance = true }
                         }
                     }
                     // .sidebar is required for Section(isExpanded:) collapse/expand to function
                     .listStyle(.sidebar)
                     #if os(macOS)
+                    // The rows are cards inset from the window's edges (see `MacListCard`).
+                    .macCardListMargins()
                     // With the Certifications or Insurance filter the list shows one kind of row,
                     // so its column labels are pinned above the list; not over an empty state.
                     .pinnedColumnHeader(
@@ -404,7 +406,12 @@ struct DocumentsView: View {
                         closeToolbarButton { onClose() }
                     }
                 }
-                DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+                if onClose == nil {
+                    MainWindowLeadingToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+                } else {
+                    // In a sheet (from Diver Profile): the diver filter only, no app-wide buttons.
+                    DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+                }
                 #if os(macOS)
                 // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
                 // navigation bar does; separate items (especially menus) get separate capsules.
@@ -637,7 +644,7 @@ struct DocumentsView: View {
     // MARK: - Row Helpers
 
     @ViewBuilder
-    private func certRow(_ cert: Certification, isLast: Bool) -> some View {
+    private func certRow(_ cert: Certification, isFirst: Bool, isLast: Bool) -> some View {
         Button { selectedCertification = cert } label: {
             #if os(macOS)
             // One line in a wide window, the stacked row otherwise (as on iOS); each version
@@ -676,13 +683,17 @@ struct DocumentsView: View {
                 showDeleteCertConfirmation = true
             } label: { Label("Delete", systemImage: "trash") }
         }
-        // Same row background as the Dives and Equipment tabs; no separator under a section's
-        // last row.
-        .listRowBackground(Color.primary.opacity(0.07), macSeparator: !isLast)
+        // Same row background as the Dives and Equipment tabs (a card per section on macOS).
+        .listRowBackground(Color.primary.opacity(0.07), macFirst: isFirst, macLast: isLast)
+        #if os(iOS)
+        // iOS starts the separator at the row's first Text, after the icon: start it at the
+        // row's leading edge, as in the Dives list.
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        #endif
     }
 
     @ViewBuilder
-    private func insuranceRow(_ insurance: DivingInsurance, isLast: Bool) -> some View {
+    private func insuranceRow(_ insurance: DivingInsurance, isFirst: Bool, isLast: Bool) -> some View {
         Button { selectedInsurance = insurance } label: {
             #if os(macOS)
             // One line in a wide window, the stacked row otherwise (as on iOS); see certRow.
@@ -720,9 +731,13 @@ struct DocumentsView: View {
                 showDeleteInsuranceConfirmation = true
             } label: { Label("Delete", systemImage: "trash") }
         }
-        // Same row background as the Dives and Equipment tabs; no separator under a section's
-        // last row.
-        .listRowBackground(Color.primary.opacity(0.07), macSeparator: !isLast)
+        // Same row background as the Dives and Equipment tabs (a card per section on macOS).
+        .listRowBackground(Color.primary.opacity(0.07), macFirst: isFirst, macLast: isLast)
+        #if os(iOS)
+        // iOS starts the separator at the row's first Text, after the icon: start it at the
+        // row's leading edge, as in the Dives list.
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        #endif
     }
 
     // MARK: - Section Binding Helper
@@ -857,7 +872,11 @@ struct DocumentsView: View {
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 20).fill(.ultraThinMaterial))
+        #if os(iOS)
+        // macOS: the list itself is inset (`macCardListMargins()`), so the alert lines up with
+        // the cards without it.
         .padding(.horizontal)
+        #endif
     }
 
     // MARK: - Both Empty State
@@ -1271,7 +1290,7 @@ struct AddDocumentSection: View {
         }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 0, leading: CardList.clearRowSideInset, bottom: 0, trailing: CardList.clearRowSideInset))
     }
 }
 

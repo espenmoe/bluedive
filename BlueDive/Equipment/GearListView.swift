@@ -24,6 +24,7 @@ struct GearListView: View {
     @State private var searchText = ""
     @State private var filterCategory: GearCategory?
     @State private var showInactive = false
+    @State private var showFilterSheet = false
     @State private var collapsedSections: Set<String> = []
     #if os(macOS)
     /// Whether the rows show their one-line version (wide window), reported by the rows; the
@@ -223,7 +224,7 @@ struct GearListView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: isImporting)
         .navigationTitle("")
-        .searchable(text: $searchText, prompt: "Search equipment...")
+        .mainListSearchable(text: $searchText, prompt: Text("Search equipment..."))
         .animation(.easeInOut(duration: 0.3), value: searchText)
         .animation(.easeInOut(duration: 0.3), value: filterCategory)
         .animation(.easeInOut(duration: 0.3), value: showInactive)
@@ -240,6 +241,17 @@ struct GearListView: View {
         .sheet(isPresented: $showAddGear) {
             AddGearView()
                 .standardSheetPresentation()
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            GearFilterSheet(
+                categories: filterCategoryChoices,
+                showsInactiveToggle: inactiveCount > 0 || showInactive,
+                activeFilterCount: activeFilterCount,
+                filterCategory: $filterCategory,
+                showInactive: $showInactive,
+                reset: resetFilters
+            )
+            .standardSheetPresentation()
         }
         .sheet(item: $selectedGear) { gear in
             GearServiceView(gear: gear)
@@ -401,11 +413,10 @@ struct GearListView: View {
         } else if filteredGear.isEmpty && !selectedDiver.isEmpty && filterCategory == nil && searchText.isEmpty {
             noGearForDiverView
                 .transition(.opacity)
-        } else if filteredGear.isEmpty && filterCategory == nil {
+        } else if filteredGear.isEmpty {
             noResultsView
                 .transition(.opacity)
         } else {
-            // When filterCategory is active with no results, still show gearList so category chips remain accessible.
             gearList
                 .transition(.opacity)
         }
@@ -421,12 +432,25 @@ struct GearListView: View {
 
     /// Not `ContentUnavailableView.search`, whose text is SwiftUI's own and follows the system
     /// language, not the in-app language; worded as the Dives tab's "No dives found".
+    /// With the action that clears the filters when some are active, as on the Marine Life
+    /// tab (otherwise only the toolbar's filter button could clear them).
     private var noResultsView: some View {
-        ContentUnavailableView(
-            "No equipment found",
-            systemImage: "magnifyingglass",
-            description: Text("Try other keywords or modify the filters.")
-        )
+        ContentUnavailableView {
+            Label("No equipment found", systemImage: "magnifyingglass")
+        } description: {
+            Text("Try other keywords or modify the filters.")
+        } actions: {
+            if activeFilterCount > 0 {
+                Button {
+                    withAnimation { resetFilters() }
+                } label: {
+                    Label("Clear filters", systemImage: "xmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.cyan)
+                }
+                .borderlessButton()
+            }
+        }
     }
 
     private var noGearForDiverView: some View {
@@ -483,11 +507,6 @@ struct GearListView: View {
     
     private var gearList: some View {
         List {
-            // Filtre par catégorie
-            if searchText.isEmpty {
-                categoryFilterSection
-            }
-            
             // Liste groupée
             ForEach(groupedGear, id: \.key) { category, items in
                 Section(isExpanded: Binding(
@@ -507,9 +526,15 @@ struct GearListView: View {
                             GearRow(gear: item)
                         }
                         .buttonStyle(.plain)
-                        // Same row background as the Dives tab; no separator under a section's last row.
+                        // Same row background as the Dives tab (a card per section on macOS).
                         .listRowBackground(Color.primary.opacity(0.07),
-                                           macSeparator: item.id != items.last?.id)
+                                           macFirst: item.id == items.first?.id,
+                                           macLast: item.id == items.last?.id)
+                        #if os(iOS)
+                        // iOS starts the separator at the row's first Text, after the icon: start
+                        // it at the row's leading edge, as in the Dives list.
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                        #endif
                         // Right-click (macOS) / long-press (iOS): the way to delete with a mouse
                         // that cannot swipe; also opens or edits the item.
                         .contextMenu {
@@ -563,9 +588,11 @@ struct GearListView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         #if os(macOS)
-        // Column labels pinned above the list, once for all categories; not over an empty
-        // list (a category filter with no results).
-        .pinnedColumnHeader(gearListLayout, isShown: !groupedGear.isEmpty) { GearListColumnHeader() }
+        // The rows are cards inset from the window's edges (see `MacListCard`).
+        .macCardListMargins()
+        // Column labels pinned above the list, once for all categories (the list is shown
+        // only when some gear matches; otherwise "No equipment found").
+        .pinnedColumnHeader(gearListLayout) { GearListColumnHeader() }
         .environment(gearListLayout)
         #endif
         .refreshable {
@@ -575,91 +602,53 @@ struct GearListView: View {
         }
     }
     
-    /// "All" plus one chip per category that has gear for the selected diver.
-    @ViewBuilder
-    private var categoryChips: some View {
-        // Filter by category
-        CategoryFilterChip(
-            title: "All",
-            icon: "square.grid.2x2",
-            isSelected: filterCategory == nil
-        ) {
-            filterCategory = nil
+    /// The categories offered in the filter sheet: those with gear the list can show for the
+    /// selected diver (inactive gear only while "show inactive" is on), in display order, plus
+    /// the selected one if it has none any more, so a filter left on it can still be seen and
+    /// cleared.
+    private var filterCategoryChoices: [GearCategory] {
+        let diverBase = allGear.filter { gear in
+            (showInactive || !gear.isInactive)
+                && (selectedDiver.isEmpty || gear.diverName.trimmingCharacters(in: .whitespaces) == selectedDiver)
         }
-
-        // Catégories
-        let diverBase = selectedDiver.isEmpty
-            ? allGear
-            : allGear.filter { $0.diverName.trimmingCharacters(in: .whitespaces) == selectedDiver }
-        ForEach(sortedCategories) { category in
-            let count = diverBase.filter { $0.category == category.rawValue }.count
-            if count > 0 {
-                CategoryFilterChip(
-                    title: "gear.category." + category.rawValue,
-                    icon: category.icon,
-                    count: count,
-                    isSelected: filterCategory == category
-                ) {
-                    filterCategory = category
-                }
-            }
-        }
+        let used = Set(diverBase.map(\.category))
+        return sortedCategories.filter { used.contains($0.rawValue) || $0 == filterCategory }
     }
 
-    private var categoryChipScrollView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                categoryChips
-            }
-            .padding(.horizontal, 4)
-        }
+    private func resetFilters() {
+        filterCategory = nil
+        showInactive = false
     }
 
-
-    private var categoryFilterSection: some View {
-        Section {
-            // One sideways-scrolling row on both platforms (a wrapping layout would not get
-            // its full height inside this List row).
-            #if os(macOS)
-            // A mouse without horizontal scrolling can't swipe the row: ‹ › buttons page
-            // through it, shown only when the chips don't all fit.
-            ChipRowScrollButtons(row: categoryChipScrollView)
-            #else
-            categoryChipScrollView
-            #endif
-        }
-        .listRowInsets(EdgeInsets())
-        .listRowBackground(Color.clear)
+    /// Category filter and "show inactive" (not the default view) in use.
+    private var activeFilterCount: Int {
+        (filterCategory == nil ? 0 : 1) + (showInactive ? 1 : 0)
     }
-    
-    /// Number of inactive gear items (shown as badge on the toggle)
+
+    /// Number of inactive gear items (the filter sheet offers "show inactive" only when > 0)
     private var inactiveCount: Int {
         allGear.filter { $0.isInactive }.count
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+        MainWindowLeadingToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
 
         #if os(macOS)
         // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
         // navigation bar does; separate items (especially menus) get separate capsules.
         ToolbarItemGroup(placement: .primaryAction) {
-            if inactiveCount > 0 {
-                inactiveToggleButton
-            }
             addGearButton
+            filterButton
             gearMoreMenu
                 .toolbarMenuIndicatorHiddenOnMac()
         }
         #else
-        if inactiveCount > 0 {
-            ToolbarItem(placement: .primaryAction) {
-                inactiveToggleButton
-            }
-        }
         ToolbarItem(placement: .primaryAction) {
             addGearButton
+        }
+        ToolbarItem(placement: .primaryAction) {
+            filterButton
         }
         ToolbarItem(placement: .primaryAction) {
             gearMoreMenu
@@ -669,20 +658,28 @@ struct GearListView: View {
 
     // Toolbar controls, shared by the iOS and macOS toolbar layouts above.
 
-    private var inactiveToggleButton: some View {
-        Button {
-            withAnimation {
-                showInactive.toggle()
+    /// Opens the filter sheet; orange with the number of active filters, as in the Dives and
+    /// Marine Life tabs.
+    private var filterButton: some View {
+        Button(action: { showFilterSheet = true }) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .foregroundStyle(activeFilterCount > 0 ? .orange : .cyan)
+
+                if activeFilterCount > 0 {
+                    Text(verbatim: Double(activeFilterCount).localizedString(decimals: 0))
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(3)
+                        .background(Color.orange, in: Circle())
+                        .offset(x: 6, y: -6)
+                }
             }
-        } label: {
-            Image(systemName: showInactive ? "eye" : "eye.slash")
-                .font(.title3)
-                .foregroundStyle(showInactive ? .cyan : .secondary)
         }
-        .help(showInactive
-              ? NSLocalizedString("Hide Inactive Equipment", bundle: Bundle.forAppLanguage(), comment: "")
-              : NSLocalizedString("Show Inactive Equipment", bundle: Bundle.forAppLanguage(), comment: ""))
-        .accessibilityLabel(showInactive ? Text("Hide Inactive Equipment") : Text("Show Inactive Equipment"))
+        .accessibilityLabel(activeFilterCount == 0
+            ? Text("Filter equipment")
+            : Text(verbatim: String(format: NSLocalizedString("%d active filters", bundle: .forAppLanguage(), value: "%d active filters", comment: "Accessibility label for the filter button showing the number of active filters"), activeFilterCount))
+        )
     }
 
     private var addGearButton: some View {
@@ -1415,126 +1412,144 @@ struct GearListColumnHeader: View {
 }
 #endif
 
-// MARK: - Category Filter Chip
+// MARK: - Equipment Filter Sheet
 
-struct CategoryFilterChip: View {
-    let title: String
-    let icon: String
-    var count: Int?
-    let isSelected: Bool
-    let action: () -> Void
-    
+/// The Equipment tab's filters, laid out like the Dives and Marine Life filter sheets (cards,
+/// a reset button at the top).
+struct GearFilterSheet: View {
+    /// Categories offered, in display order.
+    let categories: [GearCategory]
+    /// "Show inactive" is offered only when some gear is inactive (or it is on).
+    let showsInactiveToggle: Bool
+    let activeFilterCount: Int
+
+    @Binding var filterCategory: GearCategory?
+    @Binding var showInactive: Bool
+    let reset: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                action()
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    resetSection
+                    if showsInactiveToggle {
+                        inactiveSection
+                    }
+                    categorySection
+                }
+                .padding()
             }
-        }) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.caption)
-                    .accessibilityHidden(true)
-
-                Text(LocalizedStringKey(title))
-                    .font(.subheadline)
-                    .fontWeight(isSelected ? .semibold : .regular)
-                
-                if let count = count {
-                    Text(verbatim: Double(count).localizedString(decimals: 0))
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(isSelected ? Color.cyan : Color.gray.opacity(0.3))
-                        )
+            .background(AppBackground().ignoresSafeArea())
+            .navigationTitle(NSLocalizedString("Filters", bundle: Bundle.forAppLanguage(), value: "Filters", comment: "Title of the filter sheet without sort"))
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.large)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    closeToolbarButton {
+                        dismiss()
+                    }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule()
-                    .fill(isSelected ? Color.cyan.opacity(0.2) : Color.gray.opacity(0.1))
-            )
-            .overlay(
-                Capsule()
-                    .stroke(isSelected ? Color.cyan : Color.clear, lineWidth: 1)
-            )
-            .scaleEffect(isSelected ? 1.0 : 0.97)
-            .animation(.easeInOut(duration: 0.2), value: isSelected)
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
-}
 
-#if os(macOS)
-/// ‹ › buttons around a horizontally scrolling chip row (macOS), shown only when the chips
-/// don't all fit; each click scrolls most of the visible width. A separate view so the
-/// per-frame scroll geometry it tracks redraws only this row, not the whole Equipment list.
-private struct ChipRowScrollButtons<Row: View>: View {
-    /// The row's horizontal ScrollView.
-    let row: Row
+    // MARK: Sections
 
-    @State private var position = ScrollPosition()
-    @State private var metrics = ChipScrollMetrics()
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if metrics.overflows {
-                scrollButton(forward: false)
+    private var inactiveSection: some View {
+        Toggle(isOn: $showInactive.animation()) {
+            HStack(spacing: 10) {
+                Image(systemName: "eye")
+                    .font(.title3)
+                    .foregroundStyle(.cyan)
+                Text("Show Inactive Equipment")
+                    .font(.headline)
+                    .fontWeight(.semibold)
             }
-            row
-                .scrollPosition($position)
-                .onScrollGeometryChange(for: ChipScrollMetrics.self) { geometry in
-                    ChipScrollMetrics(
-                        offset: geometry.contentOffset.x,
-                        visibleWidth: geometry.containerSize.width,
-                        contentWidth: geometry.contentSize.width
+            .padding(.horizontal, 4)
+        }
+        .fullWidthSwitch()
+        .filterCardStyle()
+    }
+
+    private var categorySection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            FilterSectionHeader(title: "Category", icon: "square.grid.2x2")
+
+            chipRow {
+                ModernFilterChip(
+                    label: NSLocalizedString("All", bundle: Bundle.forAppLanguage(), value: "All", comment: "Filter chip label for selecting all items"),
+                    isSelected: filterCategory == nil
+                ) {
+                    withAnimation { filterCategory = nil }
+                }
+
+                ForEach(categories) { category in
+                    ModernFilterChip(
+                        category.localizedName,
+                        isSelected: filterCategory == category
+                    ) {
+                        withAnimation { filterCategory = category }
+                    }
+                }
+            }
+        }
+        .filterCardStyle()
+    }
+
+    private var resetSection: some View {
+        Group {
+            if activeFilterCount > 0 {
+                Button(role: .destructive) {
+                    withAnimation { reset() }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                            .font(.title3)
+                        Text(verbatim: resetButtonLabel)
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.red.opacity(0.15))
+                    .foregroundStyle(.red)
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.red.opacity(0.3), lineWidth: 1)
                     )
-                } action: { _, newMetrics in
-                    metrics = newMetrics
                 }
-            if metrics.overflows {
-                scrollButton(forward: true)
+                .buttonStyle(.plain)
+                .padding(.top, 8)
             }
         }
     }
 
-    /// ‹ or › button, disabled at the start / end of the row.
-    private func scrollButton(forward: Bool) -> some View {
-        Button {
-            let step = metrics.visibleWidth * 0.8
-            let maxOffset = max(0, metrics.contentWidth - metrics.visibleWidth)
-            let target = forward
-                ? min(maxOffset, metrics.offset + step)
-                : max(0, metrics.offset - step)
-            withAnimation(.easeInOut(duration: 0.25)) {
-                position.scrollTo(x: target)
-            }
-        } label: {
-            Image(systemName: forward ? "chevron.right" : "chevron.left")
-                .font(.body.weight(.semibold))
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(Color.primary.opacity(0.08)))
-                .contentShape(Circle())
+    private var resetButtonLabel: String {
+        activeFilterCount == 1
+            ? NSLocalizedString("Reset 1 filter", bundle: Bundle.forAppLanguage(), value: "Reset 1 filter", comment: "Reset button label when exactly one filter is active.")
+            : String(format: NSLocalizedString("Reset %lld filters", bundle: Bundle.forAppLanguage(), value: "Reset %lld filters", comment: "Reset button label showing the number of active filters (plural)."), activeFilterCount)
+    }
+
+    /// A row of filter chips, as in the other filter sheets. iOS: one line that scrolls
+    /// sideways, with an edge fade. macOS: the chips wrap onto as many lines as needed.
+    @ViewBuilder
+    private func chipRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        #if os(macOS)
+        WrappingChipLayout(spacing: 12) {
+            content()
         }
-        .borderlessButton()
-        .disabled(forward ? metrics.atEnd : metrics.atStart)
-        .accessibilityLabel(forward ? Text("Scroll Right") : Text("Scroll Left"))
+        .padding(.horizontal, 4)
+        #else
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                content()
+            }
+            .padding(.horizontal, 4)
+        }
+        .chipRowFade()
+        #endif
     }
 }
-
-/// Scroll geometry of a chip row (macOS ‹ › buttons).
-private struct ChipScrollMetrics: Equatable {
-    var offset: CGFloat = 0
-    var visibleWidth: CGFloat = 0
-    var contentWidth: CGFloat = 0
-
-    /// The chips are wider than the row, so the buttons are shown.
-    var overflows: Bool { contentWidth > visibleWidth + 1 }
-    var atStart: Bool { offset <= 1 }
-    var atEnd: Bool { offset + visibleWidth >= contentWidth - 1 }
-}
-#endif

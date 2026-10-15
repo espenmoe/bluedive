@@ -280,7 +280,7 @@ struct BlueDiveApp: App {
                     showingAbout = true
                 }
             }
-            // Settings is the same sheet as on iOS (presented by ContentView),
+            // Settings is the same sheet as on iOS (presented by MainTabView),
             // not a separate Settings scene; ⌘, opens it from the app menu.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {

@@ -288,6 +288,123 @@ struct DiverFilterToolbar: ToolbarContent {
     }
 }
 
+// MARK: - Main-Window Leading Toolbar
+
+/// Presents one of the app-wide sheets `MainTabView` owns (Settings, iCloud sync status).
+/// Equatable and always equal: `MainTabView` creates a new one on every body pass, and its
+/// closure always does the same thing, so readers need not redraw for it.
+struct ShowSheetAction: Equatable {
+    let action: () -> Void
+    func callAsFunction() { action() }
+    static func == (lhs: ShowSheetAction, rhs: ShowSheetAction) -> Bool { true }
+}
+
+extension EnvironmentValues {
+    /// Presents Settings; set by `MainTabView` on its tabs.
+    @Entry var showSettingsSheet: ShowSheetAction? = nil
+    /// Presents the iCloud sync status; set by `MainTabView` on its tabs.
+    @Entry var showSyncStatusSheet: ShowSheetAction? = nil
+}
+
+/// The leading toolbar items of every tab root in the main window: diver filter, Settings and
+/// iCloud sync status. On macOS one ToolbarItemGroup, so the three share one glass capsule as
+/// in the iOS navigation bar; on iOS separate `.topBarLeading` items (not `.navigation`, which
+/// SwiftUI re-flows to the trailing side when popping back from a pushed view).
+/// The Dives tab lays out the same controls itself, with its calculators menu.
+struct MainWindowLeadingToolbar: ToolbarContent {
+    let uniqueDivers: [String]
+    @Binding var selectedDiver: String
+
+    var body: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItemGroup(placement: .navigation) {
+            DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver).picker
+                .toolbarMenuIndicatorHiddenOnMac()
+            SettingsToolbarButton()
+            CloudSyncToolbarButton()
+        }
+        #else
+        DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+        ToolbarItem(placement: .topBarLeading) {
+            SettingsToolbarButton()
+        }
+        ToolbarItem(placement: .topBarLeading) {
+            CloudSyncToolbarButton()
+        }
+        #endif
+    }
+}
+
+/// Toolbar button that presents Settings (`\.showSettingsSheet`).
+struct SettingsToolbarButton: View {
+    @Environment(\.showSettingsSheet) private var showSettingsSheet
+
+    var body: some View {
+        Button { showSettingsSheet?() } label: {
+            Image(systemName: "gear")
+                .foregroundStyle(.cyan)
+        }
+        .help("Settings")
+        .accessibilityLabel(Text("Settings"))
+    }
+}
+
+/// Toolbar button showing the iCloud sync state; presents the sync status
+/// (`\.showSyncStatusSheet`).
+struct CloudSyncToolbarButton: View {
+    @Environment(\.showSyncStatusSheet) private var showSyncStatusSheet
+    @Environment(CloudKitSyncMonitor.self) private var syncMonitor
+    @AppStorage(BlueDiveApp.iCloudSyncEnabledKey) private var iCloudSyncEnabled = true
+
+    var body: some View {
+        Button { showSyncStatusSheet?() } label: { icon }
+            .help("iCloud Sync Status")
+            .accessibilityLabel(Text("iCloud Sync Status"))
+            // Set directly on the Button rather than on a descendant inside its label,
+            // since it's undocumented whether SwiftUI promotes a descendant's
+            // .accessibilityValue to the enclosing Button's own accessibility element.
+            .accessibilityValue(accessibilityValue)
+    }
+
+    private var accessibilityValue: Text {
+        if !iCloudSyncEnabled {
+            return Text("iCloud sync is turned off")
+        } else if syncMonitor.isSyncing {
+            return Text("Syncing")
+        } else if syncMonitor.hasError {
+            return Text("Sync error")
+        } else if let d = syncMonitor.lastSyncDate, Date().timeIntervalSince(d) < 300 {
+            return Text("Recently synced")
+        } else {
+            return Text("Idle")
+        }
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        if !iCloudSyncEnabled {
+            Image(systemName: "icloud.slash")
+                .foregroundStyle(.secondary)
+        } else if syncMonitor.isSyncing {
+            // An animated symbol, not a ProgressView: macOS only shares a toolbar glass capsule
+            // between items whose labels are plain images/text, so a ProgressView label would
+            // split this button from the Settings/diver-filter group while syncing.
+            Image(systemName: "arrow.clockwise.icloud")
+                .foregroundStyle(.cyan)
+                .symbolEffect(.pulse)
+        } else if syncMonitor.hasError {
+            Image(systemName: "exclamationmark.icloud")
+                .foregroundStyle(.orange)
+        } else if let d = syncMonitor.lastSyncDate, Date().timeIntervalSince(d) < 300 {
+            Image(systemName: "checkmark.icloud")
+                .foregroundStyle(.cyan)
+        } else {
+            Image(systemName: "icloud")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 // MARK: - Stale-Selection Reset
 
 extension View {
