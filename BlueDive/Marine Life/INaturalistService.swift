@@ -11,7 +11,7 @@ enum INaturalistError: Error {
     case serviceUnavailable
 }
 
-/// Looks up species in the iNaturalist taxonomy (https://api.inaturalist.org/v1), which needs
+/// Looks up species in the iNaturalist taxonomy (https://api.inaturalist.org/v2), which needs
 /// no API key. Only the species name typed or detected is sent. Used only when Settings →
 /// Online Services → Look up species on iNaturalist is on.
 enum INaturalistService {
@@ -89,7 +89,8 @@ enum INaturalistService {
         let response: SearchResponse = try await get(path: "taxa", query: [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "per_page", value: "20"),
-            URLQueryItem(name: "locale", value: languageCode)
+            URLQueryItem(name: "locale", value: languageCode),
+            URLQueryItem(name: "fields", value: Fields.search)
         ])
         return response.results.map {
             let defaultIsOpen = isOpenLicence($0.defaultPhoto?.licenseCode)
@@ -106,7 +107,8 @@ enum INaturalistService {
     static func previewPhotos(for ids: [Int], languageCode: String) async throws -> [Int: URL] {
         guard !ids.isEmpty else { return [:] }
         let response: DetailResponse = try await get(path: "taxa/\(ids.map(String.init).joined(separator: ","))", query: [
-            URLQueryItem(name: "locale", value: languageCode)
+            URLQueryItem(name: "locale", value: languageCode),
+            URLQueryItem(name: "fields", value: Fields.photos)
         ])
         var previews: [Int: URL] = [:]
         for result in response.results {
@@ -158,7 +160,8 @@ enum INaturalistService {
     static func taxon(id: Int, languageCode: String,
                       allowAlternativePhoto: Bool) async throws -> Taxon {
         let response: DetailResponse = try await get(path: "taxa/\(id)", query: [
-            URLQueryItem(name: "locale", value: languageCode)
+            URLQueryItem(name: "locale", value: languageCode),
+            URLQueryItem(name: "fields", value: Fields.detail)
         ])
         guard let result = response.results.first else { throw INaturalistError.serviceUnavailable }
         var classification = (result.ancestors ?? []).map {
@@ -198,7 +201,7 @@ enum INaturalistService {
     }()
 
     private static func get<T: Decodable>(path: String, query: [URLQueryItem]) async throws -> T {
-        guard var components = URLComponents(string: "https://api.inaturalist.org/v1/\(path)") else {
+        guard var components = URLComponents(string: "https://api.inaturalist.org/v2/\(path)") else {
             throw INaturalistError.requestFailed
         }
         components.queryItems = query
@@ -228,6 +231,23 @@ enum INaturalistService {
             text = text.replacingOccurrences(of: entity, with: character)
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The response fields asked for (`fields`): API v2 returns only each taxon's ID without
+    /// them, and silently ignores a field name it does not know, so every key decoded below
+    /// must be listed. `id`, `name` and `rank` are required by `Result`.
+    private enum Fields {
+        private static func photo(_ prefix: String) -> String {
+            ["square_url", "medium_url", "attribution", "license_code"].map { "\(prefix).\($0)" }.joined(separator: ",")
+        }
+        private static let base = "id,name,rank,preferred_common_name,english_common_name"
+        /// Search results: names and the default photo.
+        static let search = "\(base),\(photo("default_photo"))"
+        /// Photo previews: the default photo and the taxon's other photos.
+        static let photos = "\(search),\(photo("taxon_photos.photo")),taxon_photos.taxon.id"
+        /// Full details: photos, Wikipedia and the classification.
+        static let detail = "\(photos),wikipedia_url,wikipedia_summary,"
+            + "ancestors.id,ancestors.name,ancestors.rank,ancestors.preferred_common_name"
     }
 
     private struct SearchResponse: Decodable { let results: [Result] }
