@@ -53,6 +53,8 @@ struct MarineLifeView: View {
     @State private var buildResult: (created: Int, linked: Int)?
     @State private var speciesProposals: [SpeciesPhotoProposal] = []
     @State private var showNoSpeciesInPhotos = false
+    /// Catalogue export or import asked for in the "…" menu (`speciesCatalogTransfer`).
+    @State private var transferRequest: SpeciesTransferRequest?
 
     /// Bumped after a catalogue action here; with `store.sightingsVersion` (sightings saved,
     /// full rebuilds) it makes the statistics recompute only when something changed.
@@ -566,6 +568,7 @@ struct MarineLifeView: View {
             } message: {
                 Text(verbatim: String(format: NSLocalizedString("Species created: %@. Sightings linked: %@.", bundle: .forAppLanguage(), value: "Species created: %@. Sightings linked: %@.", comment: "Build catalogue result (locale-formatted numbers)"), Double(buildResult?.created ?? 0).localizedString(decimals: 0), Double(buildResult?.linked ?? 0).localizedString(decimals: 0)))
             }
+            .speciesCatalogTransfer(request: $transferRequest) { contentVersion += 1 }
         }
         // The tab's whole stack (pushed pages included): shown until another tab is selected.
         // Coming back recomputes only if something changed meanwhile (statsKey; DiveStore bumps
@@ -624,6 +627,23 @@ struct MarineLifeView: View {
                 if proposals.isEmpty { showNoSpeciesInPhotos = true } else { speciesProposals = proposals }
             } label: {
                 Label("Find Species in Photos", systemImage: "text.viewfinder")
+            }
+            Divider()
+            Menu {
+                Button("Without Images…") {
+                    transferRequest = .export(includeImages: false)
+                }
+                Button("With Images…") {
+                    transferRequest = .export(includeImages: true)
+                }
+            } label: {
+                Label("Export Catalogue", systemImage: "square.and.arrow.up")
+            }
+            .disabled(catalogue.isEmpty)
+            Button {
+                transferRequest = .importFile
+            } label: {
+                Label("Import Catalogue…", systemImage: "square.and.arrow.down")
             }
         } label: {
             Image(systemName: "ellipsis")

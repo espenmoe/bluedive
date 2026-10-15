@@ -233,6 +233,9 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .importInsuranceXML)) { _ in
             selectedTab = 3
         }
+        .onReceive(NotificationCenter.default.publisher(for: .importSpeciesXML)) { _ in
+            selectedTab = 4
+        }
         .task {
             // If the app launched via a file open (Files, AirDrop, Mail) and restored to
             // a non-zero tab, ContentView (tab 0) won't mount and its onAppear won't fire.

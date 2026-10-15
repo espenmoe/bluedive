@@ -43,6 +43,7 @@ final class FileImportCoordinator {
     var pendingGearXML: PendingXMLImport?
     var pendingCertXML: PendingXMLImport?
     var pendingInsuranceXML: PendingXMLImport?
+    var pendingSpeciesXML: PendingXMLImport?
 }
 
 // MARK: - Import Error
@@ -197,13 +198,15 @@ extension ContentView {
             || (url.pathExtension.lowercased() == "bluedive"
                 && !snippet.contains("<blueDiveGearExport>")
                 && !snippet.contains("<blueDiveCertificationExport>")
-                && !snippet.contains("<blueDiveInsuranceExport>")))
+                && !snippet.contains("<blueDiveInsuranceExport>")
+                && !snippet.contains("<blueDiveSpeciesExport>")))
 
-        // 1a. BlueDive auxiliary XML types — gear, certification, and insurance exports.
+        // 1a. BlueDive auxiliary XML types — gear, certification, insurance and species exports.
         //     Checked after isBlueDive to avoid double-matching.
         let isGearXML        = !isBlueDive && snippet.contains("<blueDiveGearExport>")
         let isCertXML        = !isBlueDive && !isGearXML && snippet.contains("<blueDiveCertificationExport>")
         let isInsuranceXML   = !isBlueDive && !isGearXML && !isCertXML && snippet.contains("<blueDiveInsuranceExport>")
+        let isSpeciesXML     = !isBlueDive && !isGearXML && !isCertXML && !isInsuranceXML && snippet.contains("<blueDiveSpeciesExport>")
 
         // 2. UDDF — identified by <uddf root element or .uddf extension.
         //    Checked before MacDive because UDDF files exported by MacDive
@@ -219,14 +222,15 @@ extension ContentView {
         //    from matching files that happen to contain that string. Also excludes the
         //    BlueDive auxiliary XML types so a gear/cert/insurance export can never be
         //    misrouted here even if its payload happened to contain "program=".
-        let isSubsurface = !isBlueDive && !isUDDF && !isGearXML && !isCertXML && !isInsuranceXML && (
+        let isSubsurface = !isBlueDive && !isUDDF && !isGearXML && !isCertXML && !isInsuranceXML && !isSpeciesXML && (
             snippet.contains("program='subsurface'")
             || snippet.contains("program=\"subsurface\"")
             || url.pathExtension.lowercased() == "ssrf"
         )
 
         // 4. MacDive XML — identified by its DOCTYPE declaration.
-        let isMacDive = !isBlueDive && !isUDDF && !isSubsurface && (
+        //    A species export is excluded: its notes may mention mac-dive.com.
+        let isMacDive = !isBlueDive && !isUDDF && !isSubsurface && !isSpeciesXML && (
             snippet.contains("<!DOCTYPE dives SYSTEM \"http://www.mac-dive.com/macdive_logbook.dtd\">")
             || snippet.contains("mac-dive.com")
         )
@@ -308,6 +312,13 @@ extension ContentView {
             if let data = rawData {
                 importCoordinator.pendingInsuranceXML = PendingXMLImport(id: UUID(), data: data, fileName: url.lastPathComponent)
                 NotificationCenter.default.post(name: .importInsuranceXML, object: nil)
+            }
+
+        } else if isSpeciesXML {
+            // BlueDive species catalogue XML — route to Marine Life tab via coordinator + notification.
+            if let data = rawData {
+                importCoordinator.pendingSpeciesXML = PendingXMLImport(id: UUID(), data: data, fileName: url.lastPathComponent)
+                NotificationCenter.default.post(name: .importSpeciesXML, object: nil)
             }
 
         } else {
