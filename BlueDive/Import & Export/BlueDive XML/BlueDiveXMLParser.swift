@@ -22,6 +22,9 @@ final class BlueDiveXMLParser: NSObject, XMLParserDelegate, @unchecked Sendable 
     var volumeFormat: String = ""
     var weightFormat: String = "kg"
     var importGear: Bool = true
+    /// The file's `<speciesCatalogue>` species by id (read first with `SpeciesXMLParser`):
+    /// a sighting's `<speciesID>` takes its species from here.
+    var speciesByID: [UUID: SpeciesXMLParser.ParsedSpecies] = [:]
 
     // MARK: - Current Dive State
 
@@ -167,6 +170,7 @@ final class BlueDiveXMLParser: NSObject, XMLParserDelegate, @unchecked Sendable 
 
     private var tempMarineLifeName: String?
     private var tempMarineLifeCount: Int?
+    private var tempMarineLifeSpeciesID: UUID?
 
     // MARK: - Date Formatter
 
@@ -610,11 +614,14 @@ final class BlueDiveXMLParser: NSObject, XMLParserDelegate, @unchecked Sendable 
             tempMarineLifeName = text.nilIfEmpty
         case "count":
             tempMarineLifeCount = Int(text)
+        case "speciesID":
+            tempMarineLifeSpeciesID = UUID(uuidString: text)
         case "marineLife", "fish":
             if let name = tempMarineLifeName {
                 currentMarineLife.append(BlueDiveMarineLifeData(
                     name: name,
-                    count: tempMarineLifeCount ?? 1
+                    count: tempMarineLifeCount ?? 1,
+                    species: tempMarineLifeSpeciesID.flatMap { speciesByID[$0] }
                 ))
             }
             isInMarineLife = false
@@ -854,6 +861,7 @@ final class BlueDiveXMLParser: NSObject, XMLParserDelegate, @unchecked Sendable 
     private func resetTempMarineLife() {
         tempMarineLifeName = nil
         tempMarineLifeCount = nil
+        tempMarineLifeSpeciesID = nil
     }
 
     // MARK: - Parsing Utilities

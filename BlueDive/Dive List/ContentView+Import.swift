@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import os
 
 // MARK: - Import File Type
 
@@ -357,7 +358,7 @@ extension ContentView {
                 }
 
                 await MainActor.run {
-                    routeParsedDives(parsedDives, fileName: url.lastPathComponent)
+                    routeParsedDives(parsedDives, fileName: url.lastPathComponent, createsSpecies: chosenFormats.importSpecies)
                 }
 
             } catch let error as ImportError {
@@ -421,8 +422,14 @@ extension ContentView {
     }
 
     private func parseBlueDiveXML(data: Data, importGear: Bool) throws -> [BlueDiveGlobalData] {
+        // The species the sightings link to come first in the file (`<speciesCatalogue>`):
+        // read up to the dives, then handed to the dive parser. Absent in older files.
+        let species = SpeciesXMLParser(containerPath: ["blueDiveExport", "speciesCatalogue"],
+                                       stopElements: ["dives", "dive"]).parse(data: data) ?? []
         let parser = BlueDiveXMLParser()
         parser.importGear = importGear
+        parser.speciesByID = Dictionary(species.compactMap { item in item.id.map { ($0, item) } },
+                                        uniquingKeysWith: { first, _ in first })
         guard let parsedData = parser.parse(data: data), !parsedData.isEmpty else {
             throw ImportError.parsingFailed
         }
@@ -461,7 +468,8 @@ extension ContentView {
     // MARK: - Duplicate Detection
 
     @MainActor
-    func routeParsedDives(_ parsed: [BlueDiveGlobalData], fileName: String) {
+    /// `createsSpecies`: Import Species (BlueDive XML); see `SpeciesImportResolver`.
+    func routeParsedDives(_ parsed: [BlueDiveGlobalData], fileName: String, createsSpecies: Bool = true) {
         guard !parsed.isEmpty else {
             isImporting = false
             importProgressFileName = ""
@@ -471,20 +479,21 @@ extension ContentView {
         }
         let duplicates = findDuplicateMatches(in: parsed)
         if duplicates.isEmpty {
-            commitParsedDives(parsed, indices: Array(parsed.indices), fileName: fileName)
+            commitParsedDives(parsed, indices: Array(parsed.indices), fileName: fileName, createsSpecies: createsSpecies)
         } else {
             isImporting = false
             importProgressFileName = ""
             pendingDuplicateImport = PendingDuplicateImport(
                 parsedDives: parsed,
                 duplicates: duplicates,
-                fileName: fileName
+                fileName: fileName,
+                createsSpecies: createsSpecies
             )
         }
     }
 
     @MainActor
-    func commitParsedDives(_ parsed: [BlueDiveGlobalData], indices: [Int], fileName: String) {
+    func commitParsedDives(_ parsed: [BlueDiveGlobalData], indices: [Int], fileName: String, createsSpecies: Bool = true) {
         isImporting = true
         importProgressFileName = fileName
         let container = modelContext.container
@@ -567,9 +576,11 @@ extension ContentView {
                 nextAutoNumberByDiver[diverName] = highest + 1
             }
 
-            // The catalogue's names, indexed once for the whole import: an imported sighting is
-            // linked to the existing species known by its name (never to a new one).
-            let speciesIndex = SpeciesNameIndex(catalogue: (try? modelContext.fetch(FetchDescriptor<Species>())) ?? [])
+            // The catalogue, indexed once for the whole import: a sighting carrying its species
+            // (BlueDive XML) is linked to that species, created when missing unless Import Species
+            // is off; any other sighting to the existing species known by its name (never to a
+            // new one).
+            let speciesResolver = SpeciesImportResolver(context: modelContext, allowsCreation: createsSpecies)
 
             var batch = 0
             for index in indices {
@@ -581,7 +592,7 @@ extension ContentView {
                     autoNumber = current
                     nextAutoNumberByDiver[diverName] = current + 1
                 }
-                insertParsedDive(parsed[index], assignedDiveNumber: autoNumber, overrideDiverName: resolvedDiverNameByIndex[index], fileName: fileName, speciesIndex: speciesIndex, snapshotByID: &snapshotByID, snapshotByMatchKey: &snapshotByMatchKey, resolvedGearByID: &resolvedGearByID)
+                insertParsedDive(parsed[index], assignedDiveNumber: autoNumber, overrideDiverName: resolvedDiverNameByIndex[index], fileName: fileName, speciesResolver: speciesResolver, snapshotByID: &snapshotByID, snapshotByMatchKey: &snapshotByMatchKey, resolvedGearByID: &resolvedGearByID)
                 batch += 1
                 importProgressCurrent = batch
                 if batch % 25 == 0 {
@@ -591,6 +602,24 @@ extension ContentView {
             importProgressCurrent = indices.count
             do {
                 try modelContext.save()
+                // Species created from the file also take the sightings already in the logbook
+                // that are not in the catalogue and were recorded under one of their names, as
+                // the species catalogue import does; then the ones not linked to iNaturalist are
+                // looked up in the background when lookups are on. The dives and species are
+                // saved at this point: a failure here only undoes these links (Marine Life →
+                // Build Catalogue from Sightings makes them later), so it is logged, not shown
+                // as a failed import.
+                if !speciesResolver.created.isEmpty {
+                    if speciesResolver.linkUnlinkedSightings() > 0 {
+                        do {
+                            try modelContext.save()
+                        } catch {
+                            modelContext.rollback()
+                            BlueDiveApp.logger.error("❌ Linking existing sightings to imported species failed: \(error.localizedDescription)")
+                        }
+                    }
+                    INaturalistUpdater.updateInBackground(speciesResolver.created.map(\.species), in: modelContext)
+                }
                 if UserDefaults.standard.bool(forKey: "notificationsEnabled"),
                    UserDefaults.standard.object(forKey: "milestoneNotifications") as? Bool ?? false {
                     let totalDives = (try? modelContext.fetchCount(FetchDescriptor<Dive>())) ?? 0
@@ -911,7 +940,7 @@ extension ContentView {
     // MARK: - MacDive XML Import
     
     @MainActor
-    func insertParsedDive(_ diveData: BlueDiveGlobalData, assignedDiveNumber: Int? = nil, overrideDiverName: String? = nil, fileName: String, speciesIndex: SpeciesNameIndex, snapshotByID: inout [UUID: GearSnapshot], snapshotByMatchKey: inout [String: GearSnapshot], resolvedGearByID: inout [UUID: Gear]) {
+    func insertParsedDive(_ diveData: BlueDiveGlobalData, assignedDiveNumber: Int? = nil, overrideDiverName: String? = nil, fileName: String, speciesResolver: SpeciesImportResolver, snapshotByID: inout [UUID: GearSnapshot], snapshotByMatchKey: inout [String: GearSnapshot], resolvedGearByID: inout [UUID: Gear]) {
         // Convert MacDive samples to DiveProfilePoints
         let profilePoints = diveData.samples.map { sample in
             DiveProfilePoint(
@@ -1174,18 +1203,21 @@ extension ContentView {
         if newDive.usedGear == nil { newDive.usedGear = [] }
         newDive.usedGear!.append(contentsOf: equipmentToAdd)
 
-        // Create marine life sightings from imported data, under their imported names. A name
-        // the catalogue knows (any of a species' names, ignoring case) links the sighting to
-        // that species; an unknown name stays out of the catalogue (no species is created by
-        // an import — Marine Life → Build Catalogue from Sightings does that on request).
+        // Create marine life sightings from imported data, under their imported names. A
+        // sighting carrying its catalogue species (BlueDive XML) is linked to it: the species
+        // with its id, else one known by one of its names, else created from the file (complete
+        // BlueDive records) unless Import Species is off. Any other sighting is linked only when the catalogue knows its name
+        // (any of a species' names, ignoring case); an unknown name stays out of the catalogue
+        // (Marine Life → Build Catalogue from Sightings creates species on request).
         for marineLifeData in diveData.marineLifeSeen {
             let marineSight = MarineSight(
                 name: marineLifeData.name,
                 count: marineLifeData.count
             )
-            // Not a species deleted on another device since the index was built.
-            if let species = speciesIndex.species(named: marineLifeData.name),
-               !species.isDeleted, species.modelContext != nil {
+            if let carried = marineLifeData.species,
+               let species = speciesResolver.species(for: carried) {
+                marineSight.species = species
+            } else if let species = speciesResolver.existingSpecies(named: marineLifeData.name) {
                 marineSight.species = species
             }
             marineSight.dive = newDive

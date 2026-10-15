@@ -4,8 +4,10 @@ import Foundation
 
 /// Parses XML files produced by `SpeciesXMLExporter`.
 /// The root element is `<blueDiveSpeciesExport>` and each species lives inside a
-/// `<species>` element of `<speciesList>`. Values are read as written (not trimmed); an
-/// omitted optional element stays nil. An element is read only at its place in that layout
+/// `<species>` element of `<speciesList>`; the same species elements are read from the
+/// `<speciesCatalogue>` block of a BlueDive dive file (`init(containerPath:stopElements:)`).
+/// Values are read as written (not trimmed); an omitted optional element stays nil. An
+/// element is read only at its place in that layout
 /// (a species field as a direct child of `<species>`, `altName` in its `<altNames>`, the
 /// image fields in its `<featuredImage>`), so an element this version does not know —
 /// e.g. a block a later version adds inside `<species>` — is skipped with everything in it,
@@ -50,16 +52,29 @@ nonisolated final class SpeciesXMLParser: NSObject, XMLParserDelegate {
 
     // MARK: - Parser Context
 
+    /// Where the `<species>` elements are: `<blueDiveSpeciesExport>` → `<speciesList>` in a
+    /// species catalogue file, `<blueDiveExport>` → `<speciesCatalogue>` in a dive file.
+    private let containerPath: [String]
+    private let speciesPath: [String]
+    /// Children of the root at which reading stops (a dive file's dives follow its species).
+    private let stopElements: Set<String>
+    private var stopped = false
+
+    /// A species catalogue file (the default), or the species block of another BlueDive file:
+    /// `containerPath` is the path of the element holding the `<species>` elements, from the
+    /// root; reading ends at a root child named in `stopElements`.
+    init(containerPath: [String] = ["blueDiveSpeciesExport", "speciesList"], stopElements: Set<String> = []) {
+        self.containerPath = containerPath
+        self.speciesPath = containerPath + ["species"]
+        self.stopElements = stopElements
+        super.init()
+    }
+
     private var currentText = ""
     private var sawRoot = false
     /// The open elements, outermost first; the last one is the element being read.
     private var path: [String] = []
     private var current: ParsedSpecies?
-
-    /// Whether the open elements are exactly `expected`, outermost first.
-    private func pathIs(_ expected: String...) -> Bool {
-        path.elementsEqual(expected)
-    }
 
     // MARK: - Date Formatter
 
@@ -77,7 +92,8 @@ nonisolated final class SpeciesXMLParser: NSObject, XMLParserDelegate {
     func parse(data: Data) -> [ParsedSpecies]? {
         let parser = XMLParser(data: data)
         parser.delegate = self
-        guard parser.parse(), sawRoot else { return nil }
+        // A stop is an abort, which `parse()` reports as a failure.
+        guard parser.parse() || stopped, sawRoot else { return nil }
         return species
     }
 
@@ -94,11 +110,14 @@ nonisolated final class SpeciesXMLParser: NSObject, XMLParserDelegate {
         // indentation between elements is never part of it).
         currentText = ""
         path.append(elementName)
-        if pathIs("blueDiveSpeciesExport") {
-            sawRoot = true
-        } else if pathIs("blueDiveSpeciesExport", "speciesList", "species") {
+        if path.count == 1 {
+            sawRoot = path[0] == containerPath[0]
+        } else if path.count == 2, stopElements.contains(elementName) {
+            stopped = true
+            parser.abortParsing()
+        } else if path.elementsEqual(speciesPath) {
             current = ParsedSpecies()
-        } else if pathIs("blueDiveSpeciesExport", "speciesList", "species", "altNames") {
+        } else if path.elementsEqual(speciesPath + ["altNames"]) {
             current?.altNames = []
         }
     }
@@ -120,7 +139,6 @@ nonisolated final class SpeciesXMLParser: NSObject, XMLParserDelegate {
         let text = currentText
         // `path` still ends with this element: its parent decides how it is read.
         let parentPath = path.dropLast()
-        let speciesPath = ["blueDiveSpeciesExport", "speciesList", "species"]
 
         if parentPath.elementsEqual(speciesPath + ["altNames"]) {
             if elementName == "altName" { current?.altNames?.append(text) }

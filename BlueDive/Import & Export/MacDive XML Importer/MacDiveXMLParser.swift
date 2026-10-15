@@ -219,6 +219,9 @@ struct BlueDiveSamplesData: Sendable {
 struct BlueDiveMarineLifeData: Sendable {
     let name: String               // mandatory
     let count: Int                 // mandatory
+    /// The catalogue species the sighting was linked to, carried by a BlueDive dive file
+    /// (`<speciesID>` and its `<speciesCatalogue>` entry); nil for every other format.
+    var species: SpeciesXMLParser.ParsedSpecies? = nil
 }
 
 // MARK: - XML Parser

@@ -48,53 +48,72 @@ enum SpeciesXMLExporter {
 
     // MARK: - Single Species Block
 
+    /// One `<species>` element at `indent` (its fields two spaces deeper). Also written by
+    /// `BlueDiveXMLExporter` for the species a dive export links to, so both files share one
+    /// species format.
     @MainActor
-    private static func speciesLines(for species: Species, includeImages: Bool) -> [String] {
+    static func speciesLines(for species: Species, includeImages: Bool, indent: Int = 4) -> [String] {
+        let pad = String(repeating: " ", count: indent)
+        let field = indent + 2
         var lines: [String] = []
-        lines.append("    <species>")
-        lines.append(xmlTag("id",        species.id.uuidString,         indent: 6))
-        lines.append(xmlTag("createdAt", formatDate(species.createdAt), indent: 6))
-        lines.append(xmlTag("commonName", species.commonName,           indent: 6))
-        appendOptional("scientificName",  species.scientificName,                    to: &lines)
-        appendOptional("category",        species.category,                          to: &lines)
-        appendOptional("averageSize",     species.averageSize.map { String($0) },    to: &lines)
-        appendOptional("averageSizeUnit", species.averageSizeUnit,                   to: &lines)
-        appendOptional("notes",           species.notes,                             to: &lines)
+        lines.append("\(pad)<species>")
+        lines.append(xmlTag("id",        species.id.uuidString,         indent: field))
+        lines.append(xmlTag("createdAt", formatDate(species.createdAt), indent: field))
+        lines.append(xmlTag("commonName", species.commonName,           indent: field))
+        appendOptional("scientificName",  species.scientificName,                    indent: field, to: &lines)
+        appendOptional("category",        species.category,                          indent: field, to: &lines)
+        appendOptional("averageSize",     species.averageSize.map { String($0) },    indent: field, to: &lines)
+        appendOptional("averageSizeUnit", species.averageSizeUnit,                   indent: field, to: &lines)
+        appendOptional("notes",           species.notes,                             indent: field, to: &lines)
         if let altNames = species.altNames {
-            lines.append("      <altNames>")
+            lines.append("\(pad)  <altNames>")
             for name in altNames {
-                lines.append(xmlTag("altName", name, indent: 8))
+                lines.append(xmlTag("altName", name, indent: field + 2))
             }
-            lines.append("      </altNames>")
+            lines.append("\(pad)  </altNames>")
         }
-        appendOptional("inatTaxonID",      species.inatTaxonID.map { String($0) },   to: &lines)
-        appendOptional("inatCommonNames",  species.inatCommonNamesData.map(jsonText), to: &lines)
-        appendOptional("taxonomy",         species.taxonomyData.map(jsonText),        to: &lines)
-        appendOptional("wikipediaSummary", species.wikipediaSummary,                 to: &lines)
-        appendOptional("wikipediaURL",     species.wikipediaURL,                     to: &lines)
-        appendOptional("inatFetchedAt",    species.inatFetchedAt.map(formatDate),    to: &lines)
+        appendOptional("inatTaxonID",      species.inatTaxonID.map { String($0) },   indent: field, to: &lines)
+        appendOptional("inatCommonNames",  species.inatCommonNamesData.map(jsonText), indent: field, to: &lines)
+        appendOptional("taxonomy",         species.taxonomyData.map(jsonText),        indent: field, to: &lines)
+        appendOptional("wikipediaSummary", species.wikipediaSummary,                 indent: field, to: &lines)
+        appendOptional("wikipediaURL",     species.wikipediaURL,                     indent: field, to: &lines)
+        appendOptional("inatFetchedAt",    species.inatFetchedAt.map(formatDate),    indent: field, to: &lines)
 
         if includeImages, let image = species.image, let imageData = image.imageData {
-            lines.append("      <featuredImage>")
-            lines.append(xmlTag("imageData", imageData.base64EncodedString(), indent: 8))
+            lines.append("\(pad)  <featuredImage>")
+            appendBase64("imageData", imageData, indent: field + 2, to: &lines)
             if let thumbnail = image.thumbnailData {
-                lines.append(xmlTag("thumbnailData", thumbnail.base64EncodedString(), indent: 8))
+                appendBase64("thumbnailData", thumbnail, indent: field + 2, to: &lines)
             }
             if let attribution = image.attribution {
-                lines.append(xmlTag("attribution", attribution, indent: 8))
+                lines.append(xmlTag("attribution", attribution, indent: field + 2))
             }
-            lines.append("      </featuredImage>")
+            lines.append("\(pad)  </featuredImage>")
         }
 
-        lines.append("    </species>")
+        lines.append("\(pad)</species>")
         return lines
     }
 
     // MARK: - XML Helpers
 
-    private static func appendOptional(_ name: String, _ value: String?, to lines: inout [String]) {
+    private static func appendOptional(_ name: String, _ value: String?, indent: Int, to lines: inout [String]) {
         guard let value else { return }
-        lines.append(xmlTag(name, value, indent: 6))
+        lines.append(xmlTag(name, value, indent: indent))
+    }
+
+    /// Base64 in 76-character lines between the tags, as `BlueDiveXMLExporter` writes its own
+    /// binary data: an image on a single line of hundreds of kilobytes would be shown whole by
+    /// the dive XML preview (`XMLExportTabView` limits lines, not characters). The parser
+    /// ignores the line breaks and indentation (`.ignoreUnknownCharacters`).
+    private static func appendBase64(_ name: String, _ data: Data, indent: Int, to lines: inout [String]) {
+        let pad = String(repeating: " ", count: indent)
+        lines.append("\(pad)<\(name)>")
+        let base64 = data.base64EncodedString(options: .lineLength76Characters)
+        for chunk in base64.components(separatedBy: CharacterSet.newlines) where !chunk.isEmpty {
+            lines.append("\(pad)  \(chunk)")
+        }
+        lines.append("\(pad)</\(name)>")
     }
 
     /// The stored JSON as text (JSON is UTF-8), read back byte for byte by the parser.

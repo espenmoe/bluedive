@@ -10,6 +10,9 @@ struct ImportFormatOptions {
     var volumeFormat: String      = "liters"
     var weightFormat: String      = "kg"
     var importGear: Bool          = true
+    /// BlueDive XML: add the file's species missing from the catalogue. Off, the file's
+    /// sightings link only to species already in the catalogue (by id, else by name).
+    var importSpecies: Bool       = true
 }
 
 // MARK: - Auto-detected unit system from XML
@@ -121,6 +124,14 @@ struct ImportFormatPickerView: View {
     var onCancel: () -> Void
 
     // MARK: - Derived State
+
+    /// A BlueDive dive file carrying the species its sightings link to: its `<speciesCatalogue>`
+    /// block follows the metadata at the head of the file. Older files and other formats carry
+    /// none, so Import Species is not offered for them.
+    private var carriesSpecies: Bool {
+        guard fileType == .blueDive, let data = fileData else { return false }
+        return data.prefix(8192).range(of: Data("<speciesCatalogue>".utf8)) != nil
+    }
 
     /// The unit system detected from the XML, or `nil` if undetectable.
     private var detectedSystem: DetectedUnitSystem? {
@@ -240,6 +251,9 @@ struct ImportFormatPickerView: View {
                     }
                     if fileType != .gearCSV && fileType != .garminFIT {
                         importGearToggle
+                    }
+                    if carriesSpecies {
+                        importSpeciesToggle
                     }
                     actionButtons
                 }
@@ -417,6 +431,37 @@ struct ImportFormatPickerView: View {
             Toggle("Import Gear", isOn: $options.importGear)
                 .labelsHidden()
                 .tint(.green)
+                .fullWidthSwitch()
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.primary.opacity(0.05))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        )
+    }
+
+    // MARK: - Import Species Toggle
+
+    private var importSpeciesToggle: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "fish")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.teal)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Import Species")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                Text("Add the file's species missing from the catalogue")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("Import Species", isOn: $options.importSpecies)
+                .labelsHidden()
+                .tint(.teal)
                 .fullWidthSwitch()
         }
         .padding()

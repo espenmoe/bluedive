@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 // MARK: - BlueDiveXMLExporter
 
@@ -28,10 +29,11 @@ enum BlueDiveXMLExporter {
         lines.append(xmlTag("exportedAt", formatDate(Date()),               indent: 4))
         lines.append(xmlTag("diveCount",  String(dives.count),              indent: 4))
         lines.append("  </metadata>")
+        lines.append(contentsOf: speciesCatalogueLines(for: linkedSpecies(in: dives)))
 
         // ── Dives ─────────────────────────────────────────────────────────────
         lines.append("  <dives>")
-        for dive in dives {
+        for dive in dives where isAlive(dive) {
             lines.append(contentsOf: diveLines(for: dive))
         }
         lines.append("  </dives>")
@@ -63,12 +65,15 @@ enum BlueDiveXMLExporter {
         lines.append(xmlTag("exportedAt", formatDate(Date()),               indent: 4))
         lines.append(xmlTag("diveCount",  String(dives.count),              indent: 4))
         lines.append("  </metadata>")
+        // Reported before the species are collected, which reads every sighting.
+        onProgress(0, dives.count)
+        lines.append(contentsOf: speciesCatalogueLines(for: await linkedSpecies(in: dives)))
 
         lines.append("  <dives>")
-        onProgress(0, dives.count)
         var count = 0
         for dive in dives {
-            lines.append(contentsOf: diveLines(for: dive))
+            // Re-checked after every yield: iCloud can delete a dive meanwhile.
+            if isAlive(dive) { lines.append(contentsOf: diveLines(for: dive)) }
             count += 1
             onProgress(count, dives.count)
             if count % 25 == 0 {
@@ -98,10 +103,86 @@ enum BlueDiveXMLExporter {
         lines.append(xmlTag("version",    "\(appVersion) (\(buildNumber))", indent: 4))
         lines.append(xmlTag("exportedAt", formatDate(Date()),               indent: 4))
         lines.append("  </metadata>")
+        lines.append(contentsOf: speciesCatalogueLines(for: linkedSpecies(in: [dive])))
 
         lines.append(contentsOf: diveLines(for: dive))
         lines.append("</blueDiveExport>")
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Linked Species
+
+    /// The `<speciesCatalogue>` block for `species` (`linkedSpecies(in:)`), in the species
+    /// catalogue file's format with the featured images as base64, as the catalogue's "With
+    /// Images" export (`SpeciesXMLExporter`): one image per species, written once per file.
+    /// Placed before the dives so a reader can stop after it. Empty when no sighting is linked.
+    /// Older versions skip it (it is outside every `<dive>`).
+    @MainActor
+    private static func speciesCatalogueLines(for species: [Species]) -> [String] {
+        // Re-checked here, with no suspension until written: the async collection yields, and a
+        // species deleted on another device meanwhile must not be read.
+        let live = species.filter { !$0.isDeleted && $0.modelContext != nil }
+        guard !live.isEmpty else { return [] }
+        var lines = ["  <speciesCatalogue>"]
+        for item in live {
+            lines.append(contentsOf: SpeciesXMLExporter.speciesLines(for: item, includeImages: true, indent: 4))
+        }
+        lines.append("  </speciesCatalogue>")
+        return lines
+    }
+
+    /// Each catalogue species a sighting of `dives` links to, once, sorted by common name.
+    @MainActor
+    private static func linkedSpecies(in dives: [Dive]) -> [Species] {
+        var collector = LinkedSpeciesCollector()
+        for dive in dives { collector.add(dive) }
+        return collector.sorted
+    }
+
+    /// `linkedSpecies(in:)` for the bulk export with progress: yields every 25 dives, as its
+    /// dive loop does, so a large logbook does not hold the main actor while it is read.
+    @MainActor
+    private static func linkedSpecies(in dives: [Dive]) async -> [Species] {
+        var collector = LinkedSpeciesCollector()
+        for (index, dive) in dives.enumerated() {
+            collector.add(dive)
+            if (index + 1) % 25 == 0 { await Task.yield() }
+        }
+        return collector.sorted
+    }
+
+    @MainActor
+    private struct LinkedSpeciesCollector {
+        private var seen = Set<PersistentIdentifier>()
+        private var species: [Species] = []
+
+        mutating func add(_ dive: Dive) {
+            guard BlueDiveXMLExporter.isAlive(dive) else { return }
+            for sight in dive.seenFish ?? [] {
+                guard let item = BlueDiveXMLExporter.liveSpecies(of: sight),
+                      seen.insert(item.persistentModelID).inserted else { continue }
+                species.append(item)
+            }
+        }
+
+        var sorted: [Species] {
+            species.sorted { $0.commonName.localizedStandardCompare($1.commonName) == .orderedAscending }
+        }
+    }
+
+    /// Not deleted (here or on another device) since the list of dives was read: a deleted
+    /// object must not be read.
+    @MainActor
+    private static func isAlive(_ dive: Dive) -> Bool {
+        !dive.isDeleted && dive.modelContext != nil
+    }
+
+    /// The species `sight` links to; nil when none, or when it was deleted (here or on another
+    /// device) since the sighting was read.
+    @MainActor
+    private static func liveSpecies(of sight: MarineSight) -> Species? {
+        guard let species = sight.species, !species.isDeleted, species.modelContext != nil else { return nil }
+        return species
     }
 
     // MARK: - Private: Single-dive block
@@ -255,6 +336,10 @@ enum BlueDiveXMLExporter {
                 lines.append("      <marineLife>")
                 lines.append(xmlTag("name",  marineLife.name,         indent: 8))
                 lines.append(xmlTag("count", String(marineLife.count), indent: 8))
+                // The catalogue species, written once in <speciesCatalogue>.
+                if let species = liveSpecies(of: marineLife) {
+                    lines.append(xmlTag("speciesID", species.id.uuidString, indent: 8))
+                }
                 lines.append("      </marineLife>")
             }
             lines.append("    </marineLifeSeen>")

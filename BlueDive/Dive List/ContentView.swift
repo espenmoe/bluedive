@@ -77,6 +77,8 @@ struct ContentView: View {
         let parsedDives: [BlueDiveGlobalData]
         let duplicates: [DuplicateImportMatch]
         let fileName: String
+        /// Import Species (BlueDive XML), chosen before the duplicates were found.
+        let createsSpecies: Bool
     }
     @State var pendingDuplicateImport: PendingDuplicateImport?
 
@@ -499,15 +501,17 @@ struct ContentView: View {
                         let indices = pending.parsedDives.indices.filter { !duplicateIndices.contains($0) }
                         let parsed = pending.parsedDives
                         let fileName = pending.fileName
+                        let createsSpecies = pending.createsSpecies
                         pendingDuplicateImport = nil
-                        commitParsedDives(parsed, indices: indices, fileName: fileName)
+                        commitParsedDives(parsed, indices: indices, fileName: fileName, createsSpecies: createsSpecies)
                     },
                     onImportAll: {
                         let parsed = pending.parsedDives
                         let indices = Array(pending.parsedDives.indices)
                         let fileName = pending.fileName
+                        let createsSpecies = pending.createsSpecies
                         pendingDuplicateImport = nil
-                        commitParsedDives(parsed, indices: indices, fileName: fileName)
+                        commitParsedDives(parsed, indices: indices, fileName: fileName, createsSpecies: createsSpecies)
                     },
                     onCancel: {
                         pendingDuplicateImport = nil
