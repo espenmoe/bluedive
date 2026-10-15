@@ -697,8 +697,9 @@ struct MarineLifeView: View {
     private var statsChipRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
+                // Species seen on the dives: catalogue species never recorded are not counted.
                 MarineLifeStatChip(
-                    label: "Species",
+                    label: "Species Seen",
                     icon: "fish.fill",
                     color: .orange,
                     value: Double(cachedTotalSpecies).localizedString(decimals: 0)

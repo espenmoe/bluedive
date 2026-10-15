@@ -11,11 +11,14 @@ Export types:
     dives           Dive log with associated gear and profile samples  (default)
     gears           All gear items, gear groups, and service history
     certifications  All certifications
+    species         Every critter as a BlueDive species catalogue (Marine Life → … → Import
+                    Catalogue), including critters no dive uses
 
 Required flags by export type:
     dives           --weight-unit  --macdive-xml
     gears           --weight-unit
     certifications  (none)
+    species         (none)
 
 Flags:
     --schema
@@ -58,6 +61,43 @@ Flags:
             - Working pressure: magnitude heuristic (> 400 = PSI, ≤ 400 = bar).
             - Volume: unit inferred from working pressure (PSI → cuft, bar → L);
               omitted when working pressure is unknown.
+
+    --critter-species {scientific,omit}      (dives, species; default: scientific)
+        What MacDive's critter "Species" field holds — MacDive labels it only "Species" and
+        users fill it differently.  'scientific' exports it as the species' scientific name
+        (BlueDive then links it to iNaturalist when lookups are on; a value that is not an
+        exact iNaturalist name simply stays unlinked).  'omit' leaves it out, for libraries
+        where it holds group or common names (e.g. "Kaiserfische").
+
+    --critter-size-unit {cm,in}               (dives, species; default: cm)
+        Unit of the critters' Average Size.  MacDive stores the number only and shows it in
+        cm even when depths are in feet (verified with Canadian units).  Never converted.
+
+    --critter-images PATH                     (dives, species)
+        MacDive's "Critter Images" folder (default: the folder of that name beside the
+        .sqlite file).  Each critter's picture is exported as its featured image (base64);
+        images not found are listed in the summary and the species is exported without it.
+
+Critters → BlueDive species:
+    Every critter becomes a catalogue species, values as stored in MacDive: Name → common
+    name, Species → scientific name (see --critter-species), Category → custom category,
+    Average Size (0 = empty) → size with --critter-size-unit, Notes → notes, picture →
+    featured image, ZUUID → species id (so a second import never duplicates it).  A critter
+    without a name takes its Species value as name, else is skipped.  The dives export
+    writes the species its sightings use in <speciesCatalogue>, right after <metadata>, and
+    each sighting's <speciesID>; BlueDive's Import Species option (import sheet) creates the
+    missing ones or links only to existing species.  Sightings, average depth and temperature
+    are not exported: BlueDive calculates them from the dives.
+
+    Pictures are copied unchanged (no resizing).  MacDive has no thumbnail for them;
+    BlueDive makes one on import for pictures larger than 512 pixels (the thumbnail size of
+    a picture picked in the species form); the image itself is kept as is.
+
+    Which file to import: the dives file already carries every critter its sightings use,
+    so importing it alone brings the species and the links.  The species file (--export
+    species) is only needed for the critters no dive uses; import it before or after the
+    dives — a species already in the catalogue (same id or name) is never duplicated or
+    changed.
 
 Profile-to-dive matching:
     SQLite CoreData timestamps (UTC) are matched to the XML <date> strings (local time
@@ -134,7 +174,8 @@ Data priority (first available source wins; "Raw" = agreeing raw data, see above
                                                                Ambiguous cases are logged, not changed.
                                                                Transmitters without a role are never added.
     Marine life                                                SQLite (dive-linked critters + photo-tagged
-                                                               critters, count = photos tagged)
+                                                               critters, count = photos tagged), one
+                                                               sighting per critter, linked to its species
     Profile samples (time, depth, temperature, NDL, PPO₂,      Raw → XML.  PPO₂ only as the computer reports it
       per-cell PPO₂, ceiling, remaining stop time)             (BlueDive calculates it otherwise).
     Sample tank pressure                                       Raw (mapped transmitters, same mapping as the
@@ -157,7 +198,10 @@ Output:
     dives  → <output.xml> plus <output.log>, a per-dive log of tank pressures,
              working pressure, volume, depths, and temperatures (source, original
              unit, and output unit), plus notes on gas-to-tank pairing.  Useful
-             for auditing unit conversions.
+             for auditing unit conversions.  The log summary also counts the species
+             written and lists critter images not found.
+    species → <output> (a species catalogue file; name it .bluedive to open it in BlueDive)
+             and a summary on screen.
 
     Note: run this script on the same Mac where you will import into BlueDive.  All
     date strings in the output are written in the local timezone of the machine
@@ -171,6 +215,13 @@ Examples:
         --weight-unit kg
 
     python3 macdive_to_bluedive.py MacDive.sqlite certs.xml --export certifications
+
+    python3 macdive_to_bluedive.py MacDive.sqlite species.bluedive --export species \\
+        --critter-images "$HOME/Library/Application Support/MacDive/Critter Images"
+
+    # A library whose critter Species field holds group names, not scientific names
+    python3 macdive_to_bluedive.py MacDive.sqlite dives.xml --export dives \\
+        --weight-unit kg --macdive-xml MacDive-Export.xml --critter-species omit
 
     python3 macdive_to_bluedive.py MacDive.sqlite --schema
 
@@ -575,14 +626,16 @@ def _critter_junction_cols(jt):
     return c0, c1
 
 
-def fetch_critters(cur, dive_pk, critter_jt, critter_image_jt=None):
+def fetch_critters(cur, dive_pk, critter_jt, critter_image_jt, critters):
     """
-    Return [{name, count}] for marine life sightings.
+    Return [{pk, name, count}] for marine life sightings, one per critter.
 
     MacDive links critters to a dive directly (critter ↔ dive junction) and/or through the
-    dive's photos (critter ↔ dive-image junction). Both are combined, one entry per name.
+    dive's photos (critter ↔ dive-image junction). Both are combined, one entry per critter
+    (two critters with the same name stay two sightings, each linked to its own species).
     A critter tagged on photos gets count = number of the dive's photos tagged with it;
-    a critter linked only to the dive keeps its dive-link count.
+    a critter linked only to the dive keeps its dive-link count. `critters` is
+    load_critters(); a critter it skipped (no name) is not a sighting.
     """
     if not table_exists(cur, "ZCRITTER"):
         return []
@@ -592,15 +645,14 @@ def fetch_critters(cur, dive_pk, critter_jt, critter_image_jt=None):
         critter_col, dive_col = _critter_junction_cols(critter_jt)
         try:
             cur.execute(f"""
-                SELECT c.ZNAME, COUNT(*) AS cnt
+                SELECT c.Z_PK, COUNT(*) AS cnt
                 FROM "{tbl}" j
                 JOIN ZCRITTER c ON j."{critter_col}" = c.Z_PK
                 WHERE j."{dive_col}" = ?
-                GROUP BY c.ZNAME
+                GROUP BY c.Z_PK
             """, (dive_pk,))
-            for name, cnt in cur.fetchall():
-                if name:
-                    counts[name] = cnt
+            for critter_pk, cnt in cur.fetchall():
+                counts[critter_pk] = cnt
         except Exception:
             pass
     if critter_image_jt is not None and table_exists(cur, "ZDIVEIMAGE"):
@@ -611,19 +663,164 @@ def fetch_critters(cur, dive_pk, critter_jt, critter_image_jt=None):
             critter_col, image_col = _critter_junction_cols(critter_image_jt)
             try:
                 cur.execute(f"""
-                    SELECT c.ZNAME, COUNT(DISTINCT i.Z_PK) AS cnt
+                    SELECT c.Z_PK, COUNT(DISTINCT i.Z_PK) AS cnt
                     FROM "{tbl}" j
                     JOIN ZDIVEIMAGE i ON j."{image_col}" = i.Z_PK
                     JOIN ZCRITTER c ON j."{critter_col}" = c.Z_PK
                     WHERE i."{img_dive_col}" = ?
-                    GROUP BY c.ZNAME
+                    GROUP BY c.Z_PK
                 """, (dive_pk,))
-                for name, cnt in cur.fetchall():
-                    if name:
-                        counts[name] = cnt   # photo count supersedes the dive-link count
+                for critter_pk, cnt in cur.fetchall():
+                    counts[critter_pk] = cnt   # photo count supersedes the dive-link count
             except Exception:
                 pass
-    return [{"name": name, "count": counts[name]} for name in sorted(counts)]
+    found = [{"pk": pk, "name": critters[pk]["name"], "count": n}
+             for pk, n in counts.items() if pk in critters]
+    return sorted(found, key=lambda c: (c["name"], c["pk"]))
+
+
+# ---------------------------------------------------------------------------
+# Critters → BlueDive species catalogue
+# ---------------------------------------------------------------------------
+
+# Namespace of the ids derived for critters without a ZUUID (stable across runs).
+_CRITTER_ID_NAMESPACE = _uuid_mod.UUID("8f1d6c2e-4b7a-4e1f-9c3d-2a5b6e7f8091")
+
+
+def _critter_id(raw_uuid, pk):
+    """The species id: the critter's ZUUID, else an id derived from its record number."""
+    try:
+        return str(_uuid_mod.UUID(str(raw_uuid).strip())).upper()
+    except (ValueError, AttributeError, TypeError):
+        return str(_uuid_mod.uuid5(_CRITTER_ID_NAMESPACE, f"macdive-critter-{pk}")).upper()
+
+
+def _nonblank(v):
+    """The value when it has non-whitespace text, else None (the value is kept as written)."""
+    return v if isinstance(v, str) and v.strip() else None
+
+
+def load_critters(cur, species_mode="scientific"):
+    """
+    Return ({critter_pk: critter}, [skipped_pk]) with every MacDive critter as a BlueDive
+    species, values as stored in MacDive:
+        name      ZNAME; a critter without one takes its Species value, else is skipped
+        species   ZSPECIES → scientific name; None when species_mode == "omit" (libraries
+                  whose Species field holds group names rather than scientific names)
+        category  ZCRITTERCATEGORY.ZNAME (custom category, verbatim)
+        size      ZSIZE; 0 is MacDive's empty value → None
+        notes     ZNOTES
+        image     ZIMAGE file name (in MacDive's "Critter Images" folder)
+        id        ZUUID (see _critter_id)
+    """
+    if not table_exists(cur, "ZCRITTER"):
+        return {}, []
+    cols = columns(cur, "ZCRITTER")
+    name_c    = col_or_null(cols, "ZNAME")
+    species_c = col_or_null(cols, "ZSPECIES")
+    size_c    = col_or_null(cols, "ZSIZE")
+    notes_c   = col_or_null(cols, "ZNOTES")
+    image_c   = col_or_null(cols, "ZIMAGE")
+    uuid_c    = col_or_null(cols, "ZUUID")
+    cat_c     = col_or_null(cols, "ZRELATIONSHIPCRITTERTOCRITTERCATEGORY", "ZCATEGORY")
+    categories = {}
+    if table_exists(cur, "ZCRITTERCATEGORY") and "ZNAME" in columns(cur, "ZCRITTERCATEGORY"):
+        cur.execute("SELECT Z_PK, ZNAME FROM ZCRITTERCATEGORY")
+        categories = {pk: name for pk, name in cur.fetchall() if _nonblank(name)}
+    cur.execute(f"SELECT Z_PK, {name_c}, {species_c}, {size_c}, {notes_c}, {image_c}, "
+                f"{uuid_c}, {cat_c} FROM ZCRITTER")
+    critters, skipped = {}, []
+    for pk, name, species, size, notes, image, raw_uuid, cat in cur.fetchall():
+        common = _nonblank(name) or _nonblank(species)
+        if common is None:
+            skipped.append(pk)
+            continue
+        try:
+            size_v = float(size) if size is not None and float(size) > 0 else None
+        except (TypeError, ValueError):
+            size_v = None
+        critters[pk] = {
+            "id":       _critter_id(raw_uuid, pk),
+            "name":     common,
+            "species":  _nonblank(species) if species_mode == "scientific" else None,
+            "category": categories.get(cat),
+            "size":     size_v,
+            "notes":    _nonblank(notes),
+            "image":    _nonblank(image),
+        }
+    return critters, skipped
+
+
+class CritterImages:
+    """Reads critter images from MacDive's "Critter Images" folder (once per file)."""
+
+    def __init__(self, folder):
+        self.folder = Path(folder) if folder else None
+        self._cache: dict = {}
+        self.missing: list = []      # file names not found (each once)
+
+    def read(self, file_name):
+        if file_name in self._cache:
+            return self._cache[file_name]
+        data = None
+        if self.folder is not None:
+            try:
+                data = (self.folder / file_name).read_bytes()
+            except OSError:
+                data = None
+        if data is None:
+            self.missing.append(file_name)
+        self._cache[file_name] = data
+        return data
+
+
+def critter_species_lines(critter, size_unit, images, indent=4):
+    """
+    One <species> element of the BlueDive species format (SpeciesXMLExporter in the app):
+    read by the species catalogue import and by the dive import (<speciesCatalogue>).
+    A field without a value is omitted. The image, when found, is the featured image as
+    base64 in 76-character lines; MacDive has no thumbnail or credit for it.
+    """
+    pad, field = " " * indent, indent + 2
+    lines = [f"{pad}<species>",
+             xtag("id",         critter["id"],   indent=field),
+             xtag("commonName", critter["name"], indent=field)]
+    if critter["species"] is not None:
+        lines.append(xtag("scientificName", critter["species"], indent=field))
+    if critter["category"] is not None:
+        lines.append(xtag("category", critter["category"], indent=field))
+    if critter["size"] is not None:
+        lines.append(xtag("averageSize",     fmt_double(critter["size"]), indent=field))
+        lines.append(xtag("averageSizeUnit", size_unit,                   indent=field))
+    if critter["notes"] is not None:
+        lines.append(xtag("notes", critter["notes"], indent=field))
+    if critter["image"] is not None:
+        data = images.read(critter["image"])
+        if data:
+            lines.append(f"{pad}  <featuredImage>")
+            lines += base64_block("imageData", data, indent=field + 2)
+            lines.append(f"{pad}  </featuredImage>")
+    lines.append(f"{pad}</species>")
+    return lines
+
+
+def _sorted_critters(critters, pks):
+    return sorted((critters[pk] for pk in pks), key=lambda c: (c["name"].casefold(), c["id"]))
+
+
+def critter_summary(written, images, skipped):
+    """Summary lines for the log and the console."""
+    with_picture = [c for c in written if c["image"] is not None]
+    included = sum(1 for c in with_picture if images.read(c["image"]))
+    lines = [f"Species written                                  : {len(written)}"
+             f" ({len(with_picture)} with a picture in MacDive, {included} included,"
+             f" {len(images.missing)} picture file(s) not found)"]
+    if images.missing:
+        where = images.folder if images.folder is not None else "(no folder)"
+        lines.append(f"  Images not found in {where}: " + ", ".join(sorted(images.missing)))
+    if skipped:
+        lines.append(f"  Critters skipped (no name and no Species value): {len(skipped)}")
+    return lines
 
 
 # MacDive ZEVENT.ZTYPE → BlueDive sample event. Only types whose meaning is unambiguous in
@@ -2575,17 +2772,19 @@ def profile_samples_xml_lines(samples, indent=4):
 # Dive export
 # ---------------------------------------------------------------------------
 
-def export_dives(input_path, output_path, weight_unit, macdive_xml_path, import_unmatched_tanks=False):
+def export_dives(input_path, output_path, weight_unit, macdive_xml_path, import_unmatched_tanks=False,
+                 critter_opts=None):
     """Export dives; the libdivecomputer worker is stopped however the export ends."""
     try:
         return _export_dives(input_path, output_path, weight_unit, macdive_xml_path,
-                             import_unmatched_tanks)
+                             import_unmatched_tanks, critter_opts or default_critter_opts(input_path))
     finally:
         for worker in list(_ACTIVE_WORKERS):
             worker.close()
 
 
-def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import_unmatched_tanks=False):
+def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import_unmatched_tanks,
+                  critter_opts):
     _reset_schema_caches()
 
     # Parse MacDive XML first — distance/temp/pressure/volume are auto-detected from its <units> tag.
@@ -2704,6 +2903,10 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import
     types_lkp = load_simple(cur, "ZDIVETYPE")
     tags_lkp  = load_simple(cur, "ZTAG")
     gear_map  = load_gear_map(cur)
+    # Critters → species: the ones the exported dives use are written in <speciesCatalogue>.
+    critters_map, critters_skipped = load_critters(cur, critter_opts["species_mode"])
+    critter_images = CritterImages(critter_opts["images_dir"])
+    used_critters: set = set()
 
     buddy_jt   = find_junction(junctions, "BUDDIES",  "DIVE")
     type_jt    = find_junction(junctions, "DIVETYPE", "DIVE")
@@ -3181,7 +3384,8 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import
         buddy_names = junction_lookup(cur, pk, buddy_jt, buddies)
         type_names  = junction_lookup(cur, pk, type_jt,  types_lkp)
         tag_names   = junction_lookup(cur, pk, tag_jt,   tags_lkp)
-        critters    = fetch_critters(cur, pk, critter_jt, critter_image_jt)
+        critters    = fetch_critters(cur, pk, critter_jt, critter_image_jt, critters_map)
+        used_critters.update(c["pk"] for c in critters)
         gear_items  = fetch_dive_gear(cur, pk, gear_map, gear_jts)
 
         try:
@@ -3364,6 +3568,7 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import
                 lines.append("      <marineLife>")
                 lines.append(xtag("name",  c["name"],       indent=8))
                 lines.append(xtag("count", str(c["count"]), indent=8))
+                lines.append(xtag("speciesID", critters_map[c["pk"]]["id"], indent=8))
                 lines.append("      </marineLife>")
             lines.append("    </marineLifeSeen>")
 
@@ -3514,6 +3719,17 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import
     lines.append("</blueDiveExport>")
     con.close()   # the libdivecomputer worker is closed by export_dives
 
+    # The species the sightings link to, right after <metadata> (before the dives): BlueDive
+    # reads them first, and offers Import Species when the block is at the head of the file.
+    written_critters = _sorted_critters(critters_map, used_critters)
+    if written_critters:
+        block = ["  <speciesCatalogue>"]
+        for critter in written_critters:
+            block += critter_species_lines(critter, critter_opts["size_unit"], critter_images, indent=4)
+        block.append("  </speciesCatalogue>")
+        meta_end = lines.index("  </metadata>") + 1
+        lines[meta_end:meta_end] = block
+
     _src_summary = [
         "Profile source summary:",
         f"  Raw data (libdivecomputer)                       : {_n_src['raw']}",
@@ -3527,6 +3743,7 @@ def _export_dives(input_path, output_path, weight_unit, macdive_xml_path, import
         + ("on" if import_unmatched_tanks else "off") + "): "
         + (", ".join(f"{k} {v}" for k, v in _n_unmatched.items()) or "none"),
     ]
+    _src_summary += ["  " + line for line in critter_summary(written_critters, critter_images, critters_skipped)]
     if _raw_reasons:
         _src_summary.append("  Raw data not used (# = number):")
         for _reason, _cnt in _raw_reasons.most_common():
@@ -3818,6 +4035,60 @@ def export_certifications(input_path, output_path):
 
 
 # ---------------------------------------------------------------------------
+# Species export  →  <blueDiveSpeciesExport>
+# ---------------------------------------------------------------------------
+
+def default_critter_opts(input_path, species_mode="scientific", size_unit="cm", images_dir=None):
+    """Critter options; the images default to MacDive's "Critter Images" folder beside the database."""
+    return {
+        "species_mode": species_mode,
+        "size_unit":    size_unit,
+        "images_dir":   (os.path.expanduser(images_dir) if images_dir
+                         else str(Path(input_path).parent / "Critter Images")),
+    }
+
+
+def export_species(input_path, output_path, critter_opts):
+    """
+    Every MacDive critter as a BlueDive species catalogue file (Marine Life → … → Import
+    Catalogue), including critters no dive uses. Same <species> elements as the dive export.
+    """
+    _reset_schema_caches()
+    con = sqlite3.connect(input_path)
+    cur = con.cursor()
+    critters, skipped = load_critters(cur, critter_opts["species_mode"])
+    con.close()
+    images = CritterImages(critter_opts["images_dir"])
+    written = _sorted_critters(critters, critters.keys())
+    species_lines = []
+    for critter in written:
+        species_lines += critter_species_lines(critter, critter_opts["size_unit"], images, indent=4)
+    includes_images = any("<featuredImage>" in line for line in species_lines)
+
+    lines = []
+    lines.append('<?xml version="1.0" encoding="UTF-8"?>')
+    lines.append("<blueDiveSpeciesExport>")
+    lines.append("  <metadata>")
+    lines.append(xtag("software",       "BlueDive", indent=4))
+    lines.append(xtag("version",        "1.0",      indent=4))
+    lines.append(xtag("exportedAt",     datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"), indent=4))
+    lines.append(xtag("speciesCount",   str(len(written)), indent=4))
+    lines.append(xtag("includesImages", "true" if includes_images else "false", indent=4))
+    lines.append("  </metadata>")
+    lines.append("  <speciesList>")
+    lines += species_lines
+    lines.append("  </speciesList>")
+    lines.append("</blueDiveSpeciesExport>")
+
+    Path(output_path).write_text("\n".join(lines), encoding="utf-8")
+    print(f"✓ {len(written)} species exported to {output_path}")
+    for line in critter_summary(written, images, skipped):
+        print(f"  {line}")
+    print(f"  Species field : {'scientific name' if critter_opts['species_mode'] == 'scientific' else 'not exported (--critter-species omit)'}")
+    print(f"  Size unit     : {critter_opts['size_unit']}")
+
+
+# ---------------------------------------------------------------------------
 # Schema diagnostic
 # ---------------------------------------------------------------------------
 
@@ -3876,12 +4147,19 @@ Examples:
 
   # Export all certifications
   python3 macdive_to_bluedive.py MacDive.sqlite certs.xml --export certifications
+
+  # Export every critter as a BlueDive species catalogue (Marine Life → Import Catalogue)
+  python3 macdive_to_bluedive.py MacDive.sqlite species.bluedive --export species
+
+  # Critter Species field holding group names, not scientific names: leave it out
+  python3 macdive_to_bluedive.py MacDive.sqlite dives.xml --export dives \\
+      --weight-unit kg --macdive-xml MacDive-Export.xml --critter-species omit
         """,
     )
     parser.add_argument("input",  help="Path to the MacDive .sqlite file")
     parser.add_argument("output", nargs="?", help="Destination path for the output XML file (omit with --schema)")
     parser.add_argument("--export",
-                        choices=["dives", "gears", "certifications"],
+                        choices=["dives", "gears", "certifications", "species"],
                         default="dives",
                         dest="export_type",
                         help="Type of data to export (default: dives)")
@@ -3896,6 +4174,17 @@ Examples:
                         help="Dives: also add rebreather cylinders the dive computer recorded but MacDive "
                              "did not (the computer marks them as oxygen or diluent), with the computer's "
                              "pressures. An oxygen cylinder is added as 100%% O2. Off by default.")
+    parser.add_argument("--critter-species", choices=["scientific", "omit"], default="scientific",
+                        dest="critter_species",
+                        help="Dives, species: what MacDive's critter Species field is. 'scientific' "
+                             "(default) exports it as the scientific name; 'omit' leaves it out, for "
+                             "libraries where it holds group names (e.g. 'Kaiserfische').")
+    parser.add_argument("--critter-size-unit", choices=["cm", "in"], default="cm", dest="critter_size_unit",
+                        help="Dives, species: unit of the critters' Average Size, as MacDive shows it "
+                             "(default: cm). The value is never converted.")
+    parser.add_argument("--critter-images", dest="critter_images", default=None,
+                        help="Dives, species: MacDive's 'Critter Images' folder (default: the one "
+                             "beside the .sqlite file). Images not found are listed in the summary.")
     args = parser.parse_args()
 
     if not Path(args.input).exists():
@@ -3909,6 +4198,9 @@ Examples:
     if not args.output:
         parser.error("output path is required")
 
+    critter_opts = default_critter_opts(args.input, args.critter_species, args.critter_size_unit,
+                                        args.critter_images)
+
     if args.export_type == "dives":
         missing = [flag for flag, val in [
             ("--weight-unit", args.weight),
@@ -3919,7 +4211,7 @@ Examples:
         if not Path(args.macdive_xml).exists():
             parser.error(f"MacDive XML file not found: {args.macdive_xml}")
         export_dives(args.input, args.output, args.weight, macdive_xml_path=args.macdive_xml,
-                     import_unmatched_tanks=args.import_unmatched_tanks)
+                     import_unmatched_tanks=args.import_unmatched_tanks, critter_opts=critter_opts)
 
     elif args.export_type == "gears":
         if args.weight is None:
@@ -3928,6 +4220,9 @@ Examples:
 
     elif args.export_type == "certifications":
         export_certifications(args.input, args.output)
+
+    elif args.export_type == "species":
+        export_species(args.input, args.output, critter_opts)
 
 
 if __name__ == "__main__":

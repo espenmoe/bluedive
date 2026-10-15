@@ -97,6 +97,13 @@ nonisolated final class SpeciesXMLParser: NSObject, XMLParserDelegate {
         return species
     }
 
+    /// Base64 between the tags, line breaks and indentation ignored; nil when empty or not
+    /// base64 (an empty element must not become an empty image).
+    private static func decodedBase64(_ text: String) -> Data? {
+        guard let data = Data(base64Encoded: text, options: .ignoreUnknownCharacters), !data.isEmpty else { return nil }
+        return data
+    }
+
     // MARK: - XMLParserDelegate
 
     func parser(
@@ -146,8 +153,8 @@ nonisolated final class SpeciesXMLParser: NSObject, XMLParserDelegate {
         }
         if parentPath.elementsEqual(speciesPath + ["featuredImage"]) {
             switch elementName {
-            case "imageData":     current?.imageData = Data(base64Encoded: text, options: .ignoreUnknownCharacters)
-            case "thumbnailData": current?.thumbnailData = Data(base64Encoded: text, options: .ignoreUnknownCharacters)
+            case "imageData":     current?.imageData = Self.decodedBase64(text)
+            case "thumbnailData": current?.thumbnailData = Self.decodedBase64(text)
             case "attribution":   current?.imageAttribution = text
             default:              break
             }

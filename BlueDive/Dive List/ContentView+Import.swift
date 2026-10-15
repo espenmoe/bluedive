@@ -600,6 +600,8 @@ extension ContentView {
                 }
             }
             importProgressCurrent = indices.count
+            // Thumbnails for the images of the species the file carried (made off the main actor).
+            await SpeciesXMLImport.addMissingThumbnails(to: speciesResolver.created.map(\.species))
             do {
                 try modelContext.save()
                 // Species created from the file also take the sightings already in the logbook
@@ -610,7 +612,7 @@ extension ContentView {
                 // Build Catalogue from Sightings makes them later), so it is logged, not shown
                 // as a failed import.
                 if !speciesResolver.created.isEmpty {
-                    if speciesResolver.linkUnlinkedSightings() > 0 {
+                    if await speciesResolver.linkUnlinkedSightings() > 0 {
                         do {
                             try modelContext.save()
                         } catch {

@@ -248,18 +248,27 @@ private struct SpeciesCatalogTransfer: ViewModifier {
         )
     }
 
-    /// Called as the preview sheet closes.
+    /// Called as the preview sheet closes. The overlay shows while thumbnails are made for the
+    /// imported images.
     private func commitImport(_ parsed: [SpeciesXMLParser.ParsedSpecies]) {
-        do {
-            let result = try SpeciesXMLImport.commit(parsed, in: modelContext)
-            onImported()
-            // Species with a scientific name but no iNaturalist link are looked up in the
-            // background when lookups are on (the updater skips the others).
-            INaturalistUpdater.updateInBackground(result.created, in: modelContext)
-            reportAfterSheetDismissal { importResult = (result.created.count, result.linked) }
-        } catch {
-            let message = error.localizedDescription
-            reportAfterSheetDismissal { importError = message }
+        importProgressFileName = previewFileName
+        isImporting = true
+        Task {
+            defer {
+                isImporting = false
+                importProgressFileName = ""
+            }
+            do {
+                let result = try await SpeciesXMLImport.commit(parsed, in: modelContext)
+                onImported()
+                // Species with a scientific name but no iNaturalist link are looked up in the
+                // background when lookups are on (the updater skips the others).
+                INaturalistUpdater.updateInBackground(result.created, in: modelContext)
+                reportAfterSheetDismissal { importResult = (result.created.count, result.linked) }
+            } catch {
+                let message = error.localizedDescription
+                reportAfterSheetDismissal { importError = message }
+            }
         }
     }
 
