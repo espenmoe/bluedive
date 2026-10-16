@@ -107,6 +107,21 @@ struct MainTabView: View {
     /// App-wide sheets opened from every tab's toolbar (`MainWindowToolbar`).
     @State private var showSettings = false
     @State private var showSyncStatus = false
+    #if os(iOS)
+    /// How many tabs, from the end, the iPad tab bar shows as pinned icons (`TabBarFit`).
+    @State private var pinnedTabCount = 0
+    #endif
+
+    /// The placement of the tab at `positionFromEnd` (Documents 1, Marine Life 2, Equipment 3,
+    /// Map 4): pinned (an icon at the trailing end of the iPad tab bar) while `pinnedTabCount`
+    /// reaches it. Dives always keeps its name.
+    private func tabPlacement(positionFromEnd: Int) -> TabPlacement {
+        #if os(iOS)
+        pinnedTabCount >= positionFromEnd ? .pinned : .automatic
+        #else
+        .automatic
+        #endif
+    }
 
     var body: some View {
         ZStack {
@@ -114,53 +129,55 @@ struct MainTabView: View {
             
             TabView(selection: $selectedTab) {
                 // --- TAB 1 : LOGBOOK ---
-                ContentView()
-                .tabItem {
-                    Label("Dives", systemImage: "water.waves")
+                Tab(value: 0) {
+                    ContentView()
+                } label: {
+                    Label { Text(verbatim: MainTabTitle.dives) } icon: { Image(systemName: "water.waves") }
                 }
-                .tag(0)
 
                 // --- TAB 2 : MAP ---
-                DiveMapView()
-                    .tabItem {
-                        Label("Map", systemImage: "map")
-                    }
-                    .tag(1)
+                Tab(value: 1) {
+                    DiveMapView()
+                } label: {
+                    Label { Text(verbatim: MainTabTitle.map) } icon: { Image(systemName: "map") }
+                }
+                .tabPlacement(tabPlacement(positionFromEnd: 4))
 
                 // --- TAB 3 : EQUIPMENT ---
-                // Tab labels have their own short keys: five tabs share an iPhone's width
-                // (e.g. nl "Uitrusting" here, "Duikuitrusting" elsewhere).
-                NavigationStack {
-                    GearListView()
-                }
-                .tabItem {
+                Tab(value: 2) {
+                    NavigationStack {
+                        GearListView()
+                    }
+                } label: {
                     Label {
-                        Text(verbatim: NSLocalizedString("Equipment (tab)", bundle: .forAppLanguage(), value: "Equipment", comment: "Tab bar label for Equipment; keep it short (five tabs share an iPhone's width)"))
+                        Text(verbatim: MainTabTitle.equipment)
                     } icon: {
                         Image(systemName: "wrench.and.screwdriver")
                     }
                 }
-                .tag(2)
+                .tabPlacement(tabPlacement(positionFromEnd: 3))
 
-                // --- TAB 4 : MARINE LIFE --- (tag 4: the deep links keep tags 2 and 3)
-                MarineLifeView()
-                    // "View dives" there (and on its species pages) shows the Dives tab.
-                    .environment(\.showDiveList, ShowDiveListAction { selectedTab = 0 })
-                    .tabItem {
-                        Label {
-                            Text(verbatim: NSLocalizedString("Marine Life (tab)", bundle: .forAppLanguage(), value: "Marine Life", comment: "Tab bar label for Marine Life; keep it short (five tabs share an iPhone's width)"))
-                        } icon: {
-                            Image(systemName: "fish")
-                        }
+                // --- TAB 4 : MARINE LIFE --- (value 4: the deep links keep values 2 and 3)
+                Tab(value: 4) {
+                    MarineLifeView()
+                        // "View dives" there (and on its species pages) shows the Dives tab.
+                        .environment(\.showDiveList, ShowDiveListAction { selectedTab = 0 })
+                } label: {
+                    Label {
+                        Text(verbatim: MainTabTitle.marineLife)
+                    } icon: {
+                        Image(systemName: "fish")
                     }
-                    .tag(4)
+                }
+                .tabPlacement(tabPlacement(positionFromEnd: 2))
 
                 // --- TAB 5 : DOCUMENTS ---
-                DocumentsView()
-                    .tabItem {
-                        Label("Documents", systemImage: "person.text.rectangle")
-                    }
-                    .tag(3)
+                Tab(value: 3) {
+                    DocumentsView()
+                } label: {
+                    Label { Text(verbatim: MainTabTitle.documents) } icon: { Image(systemName: "person.text.rectangle") }
+                }
+                .tabPlacement(tabPlacement(positionFromEnd: 1))
             }
             .accentColor(.cyan)
             // Every tab's Settings and iCloud toolbar buttons open the sheets presented here.
@@ -182,6 +199,9 @@ struct MainTabView: View {
         }
         // Tells the tab roots when iOS draws their toolbar in a side strip (iPhone Duo).
         .detectsToolbarSideStrip()
+        #if os(iOS)
+        .modifier(TabBarFitTracker(pinnedTabCount: $pinnedTabCount, languageMode: languageMode))
+        #endif
         .onReceive(NotificationCenter.default.publisher(for: .addDiveManual)) { _ in
             selectedTab = 0
         }
@@ -481,3 +501,130 @@ private struct LaunchQuestions: ViewModifier {
             }
     }
 }
+
+/// The main tabs' titles in the app's language, shared by the tab labels and `TabBarFit`.
+/// Equipment and Marine Life have their own short keys: five tabs share an iPhone's width
+/// (e.g. nl "Uitrusting" here, "Duikuitrusting" elsewhere).
+enum MainTabTitle {
+    static var dives: String {
+        NSLocalizedString("Dives", bundle: .forAppLanguage(), value: "Dives", comment: "Tab bar label for the dive list; the same key is used elsewhere, e.g. the dive count in the stats grid")
+    }
+    static var map: String {
+        NSLocalizedString("Map", bundle: .forAppLanguage(), value: "Map", comment: "Tab bar label for the dive map")
+    }
+    static var equipment: String {
+        NSLocalizedString("Equipment (tab)", bundle: .forAppLanguage(), value: "Equipment", comment: "Tab bar label for Equipment; keep it short (five tabs share an iPhone's width)")
+    }
+    static var marineLife: String {
+        NSLocalizedString("Marine Life (tab)", bundle: .forAppLanguage(), value: "Marine Life", comment: "Tab bar label for Marine Life; keep it short (five tabs share an iPhone's width)")
+    }
+    static var documents: String {
+        NSLocalizedString("Documents", bundle: .forAppLanguage(), value: "Documents", comment: "Tab bar label for Documents; also the Documents screen's navigation title")
+    }
+}
+
+#if os(iOS)
+/// How many tabs the iPad tab bar must pin so that it fits between the main-window toolbar's
+/// leading and trailing buttons.
+///
+/// On an iPad the tab bar sits in the navigation bar, centred in the window. Five named tabs can
+/// be too wide for the space between the diver filter / Settings / iCloud buttons and the + /
+/// Filter / "…" buttons; iOS then drops the leading buttons altogether. A pinned tab
+/// (`.tabPlacement(.pinned)`) shows only its icon, at the trailing end of the tab bar. iPadOS
+/// reports none of these widths, so they are calibrated (11-inch iPad, iPadOS 27): a named tab
+/// is its title in SF 17 pt medium plus 32.4 pt, a pinned tab about 54 pt; the leading buttons
+/// end 183.5 pt (243 with the calculators menu) from the window's edge and the trailing ones
+/// begin 162 pt from the other, and iOS needs about 21 pt between the tab bar and the buttons. Tabs are pinned from the end (Documents first);
+/// Dives always keeps its name. Only for a top tab bar: regular width and height, at least 700 pt, no
+/// side strip (iPhone Duo). `showsCalculatorsMenu` counts the Dives tab's extra leading button on
+/// every tab: the tab bar is shared, so its pinning does not change from tab to tab.
+enum TabBarFit {
+    nonisolated struct Geometry: Equatable, Sendable {
+        var width: CGFloat = 0
+        var isSideStrip = false
+    }
+
+    /// `hasTopTabBar`: regular width and height, as on an iPad; an iPhone in landscape is regular
+    /// width but compact height, with its tab bar at the bottom.
+    /// `titleWidths`: `namedTabWidths(isBoldText:)`, which depends only on the language and Bold
+    /// Text, so a live resize does not measure the titles again.
+    static func pinnedTabCount(geometry: Geometry, hasTopTabBar: Bool, titleWidths: [CGFloat],
+                               showsCalculatorsMenu: Bool) -> Int {
+        guard hasTopTabBar, geometry.width >= 700, !geometry.isSideStrip, !titleWidths.isEmpty else { return 0 }
+
+        let leadingEnd: CGFloat = showsCalculatorsMenu ? 243 : 183.5
+        // Measured: iOS keeps the leading buttons with a 22.3 pt gap, drops them at 19.7 pt.
+        let gap: CGFloat = 21
+        // Centred tab bar: it may span twice its distance to the nearer side's buttons.
+        let halfWidth = min(geometry.width / 2 - leadingEnd, geometry.width / 2 - 162) - gap
+        let available = 2 * halfWidth
+
+        let pinnedWidth: CGFloat = 54  // measured 52 to 56
+        for pinned in 0...(titleWidths.count - 1) {
+            let named = titleWidths.dropLast(pinned).reduce(0, +)
+            if named + CGFloat(pinned) * pinnedWidth <= available { return pinned }
+        }
+        return titleWidths.count - 1
+    }
+
+    /// The width of each tab with its title, in tab bar order (pinned from the end), in the app's
+    /// language. `isBoldText`: the Bold Text setting, which draws the titles heavier.
+    static func namedTabWidths(isBoldText: Bool) -> [CGFloat] {
+        let font = UIFont.systemFont(ofSize: 17, weight: isBoldText ? .bold : .medium)
+        let titles = [MainTabTitle.dives, MainTabTitle.map, MainTabTitle.equipment,
+                      MainTabTitle.marineLife, MainTabTitle.documents]
+        return titles.map { ($0 as NSString).size(withAttributes: [.font: font]).width + 32.4 }
+    }
+}
+
+/// Keeps `pinnedTabCount` current: on a change of the window's width or side insets (the keyboard
+/// changes neither, so typing never re-pins), of the size class, of the calculators menu and of
+/// the language (the tab names' widths). Writes the count only when it changes, so a resize
+/// redraws `MainTabView` only then. Also on a change of Bold Text and of the vertical size class.
+private struct TabBarFitTracker: ViewModifier {
+    @Binding var pinnedTabCount: Int
+    /// `MainTabView`'s language setting: the tab titles' widths change with it.
+    let languageMode: String
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.legibilityWeight) private var legibilityWeight
+    @AppStorage("showCalculatorsMenu") private var showCalculatorsMenu = false
+    @State private var geometry = TabBarFit.Geometry()
+    /// `TabBarFit.namedTabWidths`, measured again only on a language or Bold Text change.
+    @State private var titleWidths: [CGFloat] = []
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: TabBarFit.Geometry.self) { proxy in
+                TabBarFit.Geometry(
+                    width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                    isSideStrip: proxy.safeAreaInsets.isToolbarSideStrip)
+            } action: { newGeometry in
+                geometry = newGeometry
+                update()
+            }
+            .onChange(of: horizontalSizeClass) { update() }
+            .onChange(of: verticalSizeClass) { update() }
+            .onChange(of: legibilityWeight) { measureTitles() }
+            .onChange(of: showCalculatorsMenu) { update() }
+            .onChange(of: languageMode) { measureTitles() }
+    }
+
+    private func measureTitles() {
+        titleWidths = TabBarFit.namedTabWidths(isBoldText: legibilityWeight == .bold)
+        update()
+    }
+
+    private func update() {
+        if titleWidths.isEmpty {
+            titleWidths = TabBarFit.namedTabWidths(isBoldText: legibilityWeight == .bold)
+        }
+        let count = TabBarFit.pinnedTabCount(
+            geometry: geometry,
+            hasTopTabBar: horizontalSizeClass == .regular && verticalSizeClass == .regular,
+            titleWidths: titleWidths,
+            showsCalculatorsMenu: showCalculatorsMenu)
+        if count != pinnedTabCount { pinnedTabCount = count }
+    }
+}
+#endif

@@ -405,6 +405,12 @@ private struct SideStripNavigationBar: ViewModifier {
 #endif
 
 #if os(iOS)
+extension EdgeInsets {
+    /// Whether these safe-area insets are those of a window beside a toolbar side strip:
+    /// asymmetric side insets, a strip on one edge and nothing on the other.
+    nonisolated var isToolbarSideStrip: Bool { abs(trailing - leading) >= 40 }
+}
+
 private struct ToolbarSideStripDetector: ViewModifier {
     /// The content width beside the strip, or 0 when there is none.
     @State private var stripContentWidth: CGFloat = 0
@@ -417,8 +423,7 @@ private struct ToolbarSideStripDetector: ViewModifier {
             .background {
                 GeometryReader { proxy in
                     let insets = proxy.safeAreaInsets
-                    // Asymmetric side insets: a strip on one edge, nothing on the other.
-                    let isStrip = abs(insets.trailing - insets.leading) >= 40
+                    let isStrip = insets.isToolbarSideStrip
                     Color.clear
                         .onChange(of: isStrip ? proxy.size.width : 0, initial: true) { _, width in
                             stripContentWidth = width
