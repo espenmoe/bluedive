@@ -85,7 +85,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\"%@\" wird dauerhaft gelöscht. Alle zugehörigen Daten (Sichtungen von Unterwasserlebewesen, Ausrüstung) werden ebenfalls gelöscht."
+            "value" : "„%@“ wird dauerhaft gelöscht. Alle zugehörigen Daten (Sichtungen von Unterwasserlebewesen, Ausrüstung) werden ebenfalls gelöscht."
           }
         },
         "en" : {
@@ -7506,7 +7506,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bereken de minimale hoeveelheid ademgas die nodig is om jou en je duikpartner veilig naar de oppervlakte te brengen als een van jullie op diepte zonder lucht komt te zitten."
+            "value" : "Bereken de minimale hoeveelheid ademgas die nodig is om jou en je buddy veilig naar de oppervlakte te brengen als een van jullie op diepte zonder lucht komt te zitten."
           }
         }
       }
@@ -26432,7 +26432,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Minimum Gas (MG) is de hoeveelheid lucht die je in reserve moet houden om zowel jezelf als je duikpartner veilig naar de oppervlakte te brengen als een van jullie op diepte zonder lucht komt te zitten."
+            "value" : "Minimum Gas (MG) is de hoeveelheid lucht die je in reserve moet houden om zowel jezelf als je buddy veilig naar de oppervlakte te brengen als een van jullie op diepte zonder lucht komt te zitten."
           }
         }
       }
@@ -34544,7 +34544,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reservegas (RG) ist der feste Sicherheitspuffer, der im Feld \"Reservegas\" festgelegt wird. Es wird getrennt vom MG zurückgehalten und nie während des Tauchgangs verbraucht — es verbleibt als absoltes letztes Mittel in deiner Flasche."
+            "value" : "Reservegas (RG) ist der feste Sicherheitspuffer, der im Feld „Reservegas“ festgelegt wird. Es wird getrennt vom MG zurückgehalten und nie während des Tauchgangs verbraucht — es verbleibt als absolut letztes Mittel in deiner Flasche."
           }
         },
         "en" : {
@@ -34562,7 +34562,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reservegas (RG) is de vaste veiligheidsreserve die wordt ingesteld via het veld ‘Reservegas’. Deze wordt apart van het MG achtergehouden en wordt tijdens de duik nooit verbruikt — het blijft in je cilinder als absoluut laatste redmiddel."
+            "value" : "Reservegas (RG) is de vaste veiligheidsreserve die wordt ingesteld via het veld ‘Reservegas’. Deze wordt apart van het MG achtergehouden en wordt tijdens de duik nooit verbruikt — het blijft in je tank als absoluut laatste redmiddel."
           }
         }
       }
@@ -37724,7 +37724,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Der Betriebsdruck ist in Metrisch (L) optional. Er wird nur für Tanks benötigt, die in ft³ importiert wurden."
+            "value" : "Der Betriebsdruck ist in Metrisch (L) optional. Er wird nur für Flaschen benötigt, die in ft³ importiert wurden."
           }
         },
         "en" : {
@@ -40890,7 +40890,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchroniseer alle data tussen je apparaten. Wijzigingen worden van kracht na het opnieuw starten van de app."
+            "value" : "Synchroniseer duikgegevens tussen je apparaten. Wijzigingen worden van kracht na het opnieuw starten van de app."
           }
         }
       }
@@ -43268,7 +43268,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Er zijn drie redenen waarom deze reserve moet worden aangehouden: ademautomaten hebben een minimale inlaatdruk nodig om gas betrouwbaar te kunnen leveren, manometers zijn niet volledig nauwkeurig en de gasdruk daalt wanneer de watertemperatuur lager is dan de vultemperatuur. Samen zorgen deze factoren ervoor dat er ongeveer 40 bar (600 psi) onbruikbaar gas op de bodem van je cilinder achterblijft."
+            "value" : "Er zijn drie redenen waarom deze reserve moet worden aangehouden: ademautomaten hebben een minimale inlaatdruk nodig om gas betrouwbaar te kunnen leveren, manometers zijn niet volledig nauwkeurig en de gasdruk daalt wanneer de watertemperatuur lager is dan de vultemperatuur. Samen zorgen deze factoren ervoor dat er ongeveer 40 bar (600 psi) onbruikbaar gas op de bodem van je tank achterblijft."
           }
         }
       }
