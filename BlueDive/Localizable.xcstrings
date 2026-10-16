@@ -12596,7 +12596,7 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Wartungshinweis ausblenden"
           }
         },
@@ -12608,7 +12608,7 @@
         },
         "nl" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Onderhoudsmelding verbergen"
           }
         }
@@ -39396,6 +39396,28 @@
         }
       }
     },
+    "Species classification, common names, Wikipedia summaries and Creative Commons photos from [iNaturalist](https://www.inaturalist.org). Each photo is shown with its author's credit and licence." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Artenklassifikation, Trivialnamen, Wikipedia-Zusammenfassungen und Creative-Commons-Fotos von [iNaturalist](https://www.inaturalist.org). Jedes Foto wird mit Urhebernennung und Lizenz angezeigt."
+          }
+        },
+        "fr-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Classification des espèces, noms communs, résumés Wikipédia et photos Creative Commons provenant d'[iNaturalist](https://www.inaturalist.org). Chaque photo est affichée avec le crédit de son auteur et sa licence."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soortclassificatie, gewone namen, Wikipedia-samenvattingen en Creative Commons-foto’s van [iNaturalist](https://www.inaturalist.org). Elke foto wordt getoond met de vermelding van de maker en de licentie."
+          }
+        }
+      }
+    },
     "Species complex" : {
       "comment" : "Taxonomic rank: a group of closely related species",
       "localizations" : {
@@ -40173,8 +40195,8 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tauchzertifizierungen speichern und Ablaufbenachrichtigungen erhalten."
+            "state" : "translated",
+            "value" : "Speichere deine Tauchzertifizierungen und erhalte Benachrichtigungen, bevor sie ablaufen."
           }
         },
         "en" : {

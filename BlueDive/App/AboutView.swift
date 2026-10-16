@@ -142,6 +142,14 @@ struct AboutView: View {
                                 description: "Weather data by [Open-Meteo.com](https://open-meteo.com/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), converted to BlueDive's weather, wind and wind direction options.",
                                 url: "https://open-meteo.com"
                             )
+
+                            Divider().opacity(0.3)
+
+                            AcknowledgementRow(
+                                name: "iNaturalist",
+                                description: "Species classification, common names, Wikipedia summaries and Creative Commons photos from [iNaturalist](https://www.inaturalist.org). Each photo is shown with its author's credit and licence.",
+                                url: "https://www.inaturalist.org"
+                            )
                         }
                         .padding()
                         .sectionCardBackground()
