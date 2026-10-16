@@ -22,6 +22,8 @@ struct GearListView: View {
     /// Gear awaiting confirmation after Delete was chosen in a row's context menu.
     @State private var gearToDelete: Gear?
     @State private var searchText = ""
+    /// The service banner's X: hides it until the app is relaunched.
+    @State private var isServiceBannerDismissed = false
     @State private var filterCategory: GearCategory?
     @State private var showInactive = false
     @State private var showFilterSheet = false
@@ -188,15 +190,8 @@ struct GearListView: View {
             // Same gradient as the Dives tab (MainTabView draws the opaque background beneath).
             AppBackground(opaque: false).ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                if !gearNeedingService.isEmpty {
-                    serviceAlertBanner
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-                
-                contentSection
-            }
-            .animation(.easeInOut(duration: 0.3), value: gearNeedingService.isEmpty)
+            withServiceBannerBar(contentSection)
+                .animation(.easeInOut(duration: 0.3), value: gearNeedingService.isEmpty)
         }
         .overlay {
             if isImporting {
@@ -405,19 +400,25 @@ struct GearListView: View {
     
     // MARK: - View Components
     
+    /// Whether `contentSection` shows the gear list rather than an empty state
+    /// (`filteredGear` is a subset of `allGear`).
+    private var showsGearList: Bool {
+        !filteredGear.isEmpty
+    }
+
     @ViewBuilder
     private var contentSection: some View {
         if allGear.isEmpty {
             emptyStateView
                 .transition(.opacity)
-        } else if filteredGear.isEmpty && !selectedDiver.isEmpty && filterCategory == nil && searchText.isEmpty {
+        } else if showsGearList {
+            gearList
+                .transition(.opacity)
+        } else if !selectedDiver.isEmpty && filterCategory == nil && searchText.isEmpty {
             noGearForDiverView
                 .transition(.opacity)
-        } else if filteredGear.isEmpty {
-            noResultsView
-                .transition(.opacity)
         } else {
-            gearList
+            noResultsView
                 .transition(.opacity)
         }
     }
@@ -465,8 +466,46 @@ struct GearListView: View {
         gearOverdue.isEmpty ? .orange : .red
     }
 
+    /// Pins the service banner above the content (the list or an empty state) as a bar: the
+    /// list still reaches the top and scrolls under the banner and the toolbar, with the system
+    /// scroll edge effect, so the top stays translucent as in the other tabs. On macOS the bar
+    /// sits above the list's pinned column labels (`pinnedColumnHeader`, a bar inside it).
+    @ViewBuilder
+    private func withServiceBannerBar<Content: View>(_ content: Content) -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            content.safeAreaBar(edge: .top, spacing: 0) {
+                serviceBannerBarContent
+            }
+        } else {
+            // No scroll edge effect before 26: the bar material keeps rows from showing
+            // through the translucent banner (as `pinnedColumnHeader` does), without
+            // extending under the toolbar.
+            content.safeAreaInset(edge: .top, spacing: 0) {
+                serviceBannerBarContent
+                    .background(.bar, ignoresSafeAreaEdges: [])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var serviceBannerBarContent: some View {
+        if !gearNeedingService.isEmpty && !isServiceBannerDismissed {
+            serviceAlertBanner
+                .padding(.vertical, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Inset and rounded like the list's cards on macOS.
     private var serviceAlertBanner: some View {
-        HStack {
+        #if os(macOS)
+        let sideInset = MacListCard.margin
+        let cornerRadius = MacListCard.cornerRadius
+        #else
+        let sideInset: CGFloat = 16
+        let cornerRadius: CGFloat = 12
+        #endif
+        return HStack {
             Image(systemName: gearOverdue.isEmpty ? "exclamationmark.triangle" : "xmark.shield")
                 .foregroundStyle(bannerColor)
                 .accessibilityHidden(true)
@@ -488,9 +527,29 @@ struct GearListView: View {
             }
             
             Spacer()
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isServiceBannerDismissed = true
+                }
+            } label: {
+                // A 44 pt tap target (at least: it grows with Dynamic Type). The negative padding
+                // keeps it from making the banner taller and keeps the glyph near the trailing edge.
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .borderlessButton()
+            .padding(.vertical, -6)
+            .padding(.trailing, -10)
+            .accessibilityLabel(Text("Dismiss Service Alert", comment: "Accessibility label of the X button that hides the Equipment tab's service banner until the app is relaunched"))
         }
         .padding()
-        .background(bannerColor.opacity(0.15))
+        // A shape background only fills the banner, not the safe area under the toolbar.
+        .background(bannerColor.opacity(0.15), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .padding(.horizontal, sideInset)
     }
 
     private var bannerSubtitle: Text {
