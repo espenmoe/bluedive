@@ -219,6 +219,7 @@ struct GearListView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: isImporting)
         .navigationTitle("")
+        .sideStripNavigationBar()
         .mainListSearchable(text: $searchText, prompt: Text("Search equipment..."))
         .animation(.easeInOut(duration: 0.3), value: searchText)
         .animation(.easeInOut(duration: 0.3), value: filterCategory)
@@ -691,31 +692,14 @@ struct GearListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        MainWindowLeadingToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
-
-        #if os(macOS)
-        // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
-        // navigation bar does; separate items (especially menus) get separate capsules.
-        ToolbarItemGroup(placement: .primaryAction) {
+        MainWindowToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver) {
             addGearButton
             filterButton
             gearMoreMenu
-                .toolbarMenuIndicatorHiddenOnMac()
         }
-        #else
-        ToolbarItem(placement: .primaryAction) {
-            addGearButton
-        }
-        ToolbarItem(placement: .primaryAction) {
-            filterButton
-        }
-        ToolbarItem(placement: .primaryAction) {
-            gearMoreMenu
-        }
-        #endif
     }
 
-    // Toolbar controls, shared by the iOS and macOS toolbar layouts above.
+    // Toolbar controls, laid out for each platform by `MainWindowToolbar` above.
 
     /// Opens the filter sheet; orange with the number of active filters, as in the Dives and
     /// Marine Life tabs.

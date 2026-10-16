@@ -236,8 +236,15 @@ struct DiverFilterToolbar: ToolbarContent {
 
     private var isActive: Bool { !selectedDiver.isEmpty }
 
-    // Internal (not private) so the macOS main-window toolbar can place the menu inside its
-    // own ToolbarItemGroup alongside Settings and iCloud.
+    /// The control's accessibility label; also its title in `MainWindowToolbar`'s large content viewer.
+    static func accessibilityTitle(selectedDiver: String) -> Text {
+        selectedDiver.isEmpty
+            ? Text("Filter by diver")
+            : Text(NSLocalizedString("Filter by diver: ", bundle: Bundle.forAppLanguage(), value: "Filter by diver: ", comment: "") + selectedDiver)
+    }
+
+    // Internal (not private) so `MainWindowToolbar` can place the menu with Settings and iCloud
+    // in one ToolbarItemGroup (macOS) or in its side-strip row (iOS).
     var picker: some View {
         Menu {
             Button {
@@ -279,16 +286,14 @@ struct DiverFilterToolbar: ToolbarContent {
                     .foregroundStyle(Color.cyan)
             }
         }
-        .accessibilityLabel(isActive
-            ? Text(NSLocalizedString("Filter by diver: ", bundle: Bundle.forAppLanguage(), comment: "") + selectedDiver)
-            : Text("Filter by diver"))
+        .accessibilityLabel(Self.accessibilityTitle(selectedDiver: selectedDiver))
         .help(isActive
             ? NSLocalizedString("Diver: ", bundle: Bundle.forAppLanguage(), comment: "") + selectedDiver
             : NSLocalizedString("Filter by diver", bundle: Bundle.forAppLanguage(), comment: ""))
     }
 }
 
-// MARK: - Main-Window Leading Toolbar
+// MARK: - Main-Window Toolbar
 
 /// Presents one of the app-wide sheets `MainTabView` owns (Settings, iCloud sync status).
 /// Equatable and always equal: `MainTabView` creates a new one on every body pass, and its
@@ -306,14 +311,37 @@ extension EnvironmentValues {
     @Entry var showSyncStatusSheet: ShowSheetAction? = nil
 }
 
-/// The leading toolbar items of every tab root in the main window: diver filter, Settings and
-/// iCloud sync status. On macOS one ToolbarItemGroup, so the three share one glass capsule as
-/// in the iOS navigation bar; on iOS separate `.topBarLeading` items (not `.navigation`, which
-/// SwiftUI re-flows to the trailing side when popping back from a pushed view).
-/// The Dives tab lays out the same controls itself, with its calculators menu.
-struct MainWindowLeadingToolbar: ToolbarContent {
+/// The toolbar of every tab root in the main window: the diver filter, Settings, iCloud sync
+/// status and `leading` on the leading edge, the tab's own controls (`trailing`) on the trailing
+/// edge. Each tab lists its controls once; the layout is chosen here:
+/// - macOS: one ToolbarItemGroup per side, so each side shares one glass capsule as in the iOS
+///   navigation bar, with no ⌄ indicator on the menus.
+/// - iOS: the diver filter, Settings and iCloud as separate `.topBarLeading` items (not
+///   `.navigation`, which SwiftUI re-flows to the trailing side when popping back from a pushed
+///   view); `leading` in a `.topBarLeading` group and `trailing` in a `.primaryAction` group,
+///   where each view is still its own bar item.
+/// - iOS, toolbar in a side strip (`\.toolbarInSideStrip`, iPhone Duo): there iOS moves each
+///   plain-icon item into the strip, which holds about four, and puts the rest in a system
+///   overflow menu that drops image-only buttons. A single principal item stays in the top bar
+///   (observed on the iPhone Duo simulator, iOS 27.1; not documented), so the same controls
+///   share one row there, in two Liquid Glass capsules (`SideStripToolbarRow`). This is the
+///   one exception to "one control per ToolbarItem": nothing overflows from this row.
+struct MainWindowToolbar<Leading: View, Trailing: View>: ToolbarContent {
     let uniqueDivers: [String]
     @Binding var selectedDiver: String
+    #if os(iOS)
+    @Environment(\.toolbarInSideStrip) private var inSideStrip
+    #endif
+    private let leading: Leading
+    private let trailing: Trailing
+
+    init(uniqueDivers: [String], selectedDiver: Binding<String>,
+         @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+        self.uniqueDivers = uniqueDivers
+        self._selectedDiver = selectedDiver
+        self.leading = leading()
+        self.trailing = trailing()
+    }
 
     var body: some ToolbarContent {
         #if os(macOS)
@@ -322,18 +350,115 @@ struct MainWindowLeadingToolbar: ToolbarContent {
                 .toolbarMenuIndicatorHiddenOnMac()
             SettingsToolbarButton()
             CloudSyncToolbarButton()
+            leading
+                .toolbarMenuIndicatorHiddenOnMac()
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            trailing
+                .toolbarMenuIndicatorHiddenOnMac()
         }
         #else
-        DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
-        ToolbarItem(placement: .topBarLeading) {
-            SettingsToolbarButton()
-        }
-        ToolbarItem(placement: .topBarLeading) {
-            CloudSyncToolbarButton()
+        if inSideStrip {
+            ToolbarItem(placement: .principalOutsideTabBar) {
+                // As in the system toolbar, a long press shows each control enlarged, since the
+                // row's icons keep their size at the accessibility text sizes.
+                SideStripToolbarRow {
+                    DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver).picker
+                        // Its initials badge is hidden from accessibility: name the content.
+                        .accessibilityShowsLargeContentViewer {
+                            Label {
+                                DiverFilterToolbar.accessibilityTitle(selectedDiver: selectedDiver)
+                            } icon: {
+                                Image(systemName: "person.2")
+                            }
+                        }
+                    SettingsToolbarButton()
+                        .accessibilityShowsLargeContentViewer()
+                    CloudSyncToolbarButton()
+                        .accessibilityShowsLargeContentViewer()
+                    leading
+                        .accessibilityShowsLargeContentViewer()
+                } trailing: {
+                    trailing
+                        .accessibilityShowsLargeContentViewer()
+                }
+            }
+        } else {
+            DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+            ToolbarItem(placement: .topBarLeading) {
+                SettingsToolbarButton()
+            }
+            ToolbarItem(placement: .topBarLeading) {
+                CloudSyncToolbarButton()
+            }
+            // A group, not a shared HStack: each view stays its own bar item, so the toolbar
+            // overflow can manage them one by one.
+            ToolbarItemGroup(placement: .topBarLeading) {
+                leading
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                trailing
+            }
         }
         #endif
     }
 }
+
+extension MainWindowToolbar where Leading == EmptyView {
+    init(uniqueDivers: [String], selectedDiver: Binding<String>, @ViewBuilder trailing: () -> Trailing) {
+        self.init(uniqueDivers: uniqueDivers, selectedDiver: selectedDiver, leading: { EmptyView() }, trailing: trailing)
+    }
+}
+
+#if os(iOS)
+/// The side-strip row of `MainWindowToolbar`: two capsules, as wide as the search field
+/// (`\.toolbarSideStripWidth`), pushed to its edges as in a navigation bar.
+private struct SideStripToolbarRow<Leading: View, Trailing: View>: View {
+    @Environment(\.toolbarSideStripWidth) private var width
+    private let leading: Leading
+    private let trailing: Trailing
+
+    init(@ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
+        self.leading = leading()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        let row = HStack {
+            capsule(leading)
+            Spacer(minLength: 12)
+            capsule(trailing)
+        }
+        .frame(width: width > 0 ? width : nil)
+
+        if #available(iOS 26.0, macOS 26.0, *) {
+            GlassEffectContainer { row }
+        } else {
+            row
+        }
+    }
+
+    private func capsule(_ content: some View) -> some View {
+        HStack(spacing: 20) { content }
+        // Toolbar icons do not grow with Dynamic Type; the row must fit the bar.
+        .font(.system(size: 17))
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .sideStripCapsuleBackground()
+    }
+}
+
+private extension View {
+    /// Liquid Glass, as the system toolbar's capsules (iOS 26+; the strip is iOS 27).
+    @ViewBuilder func sideStripCapsuleBackground() -> some View {
+        if #available(iOS 26.0, macOS 26.0, *) {
+            glassEffect(.regular.interactive())
+        } else {
+            background(.bar, in: Capsule())
+        }
+    }
+}
+#endif
 
 /// Toolbar button that presents Settings (`\.showSettingsSheet`).
 struct SettingsToolbarButton: View {

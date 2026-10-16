@@ -340,6 +340,95 @@ extension ToolbarItemPlacement {
     }
 }
 
+// MARK: - Toolbar in a side strip (iPhone Duo)
+//
+// On some devices and postures (the iPhone Duo folded, or unfolded in landscape) iOS 27 moves
+// the status bar, the navigation bar's items and the tab bar into a vertical strip on the
+// trailing edge. The strip holds about four items; the rest go to a system overflow menu
+// beside ours. No API reports the strip, but it reserves a safe-area inset on its side
+// (measured: 84 pt trailing, 0 leading), while every other layout has symmetric side insets
+// (an iPhone in landscape: 62 / 62). The tab roots' `MainWindowToolbar` reads
+// `\.toolbarInSideStrip` and then puts the toolbar in one row of the top bar.
+
+extension EnvironmentValues {
+    /// Whether the main window's toolbar is drawn in a side strip; set by
+    /// `detectsToolbarSideStrip()` on `MainTabView`. Always false on macOS.
+    @Entry var toolbarInSideStrip: Bool = false
+    /// The width of the main window's content beside the strip, less the bar's leading margin;
+    /// 0 when there is no strip. Sizes `MainWindowToolbar`'s side-strip row.
+    @Entry var toolbarSideStripWidth: CGFloat = 0
+}
+
+extension View {
+    /// Sets `\.toolbarInSideStrip` and `\.toolbarSideStripWidth` for this view's content from
+    /// its safe area. iOS only; on macOS it returns the view unchanged.
+    func detectsToolbarSideStrip() -> some View {
+        #if os(iOS)
+        modifier(ToolbarSideStripDetector())
+        #else
+        self
+        #endif
+    }
+
+    /// The navigation bar of a tab root for `MainWindowToolbar`: an inline title, so no empty
+    /// large-title band appears above the search field under the one-row toolbar (tab roots have
+    /// an empty title, so it looks the same outside the strip), and while the toolbar is in a
+    /// side strip a bar that never minimizes on scroll, since the row holds the tab's only
+    /// controls. Only values change with the strip, never the view's structure, so folding or
+    /// rotating rebuilds nothing. iOS only; on macOS it returns the view unchanged.
+    func sideStripNavigationBar() -> some View {
+        #if os(iOS)
+        modifier(SideStripNavigationBar())
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(iOS)
+private struct SideStripNavigationBar: ViewModifier {
+    @Environment(\.toolbarInSideStrip) private var inSideStrip
+
+    // The `#available` branch is fixed per OS, so the strip only changes a value. Never an
+    // explicit `.automatic` title mode: it is not the same as none (it shows an empty large-title
+    // band on Equipment and Marine Life, measured).
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 27.0, macOS 27.0, *) {
+            content
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarMinimizationBehavior(inSideStrip ? .never : .automatic, for: .navigationBar)
+        } else {
+            content.navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+#endif
+
+#if os(iOS)
+private struct ToolbarSideStripDetector: ViewModifier {
+    /// The content width beside the strip, or 0 when there is none.
+    @State private var stripContentWidth: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.toolbarInSideStrip, stripContentWidth > 0)
+            // Less the bar's 20 pt leading margin: the row lines up with the search field.
+            .environment(\.toolbarSideStripWidth, max(stripContentWidth - 20, 0))
+            .background {
+                GeometryReader { proxy in
+                    let insets = proxy.safeAreaInsets
+                    // Asymmetric side insets: a strip on one edge, nothing on the other.
+                    let isStrip = abs(insets.trailing - insets.leading) >= 40
+                    Color.clear
+                        .onChange(of: isStrip ? proxy.size.width : 0, initial: true) { _, width in
+                            stripContentWidth = width
+                        }
+                }
+            }
+    }
+}
+#endif
+
 // MARK: - Toolbar items in sheets
 //
 // In a sheet, macOS renders `.primaryAction` and `.confirmationAction` items as the

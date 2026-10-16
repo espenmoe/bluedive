@@ -389,9 +389,7 @@ struct DocumentsView: View {
                     // Dives and Equipment search fields.
                 }
             }
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .sideStripNavigationBar()
             // The tab's gradient, as on the Dives and Equipment tabs.
             .background(AppBackground().ignoresSafeArea())
             .scrollContentBackground(.hidden)
@@ -405,33 +403,32 @@ struct DocumentsView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         closeToolbarButton { onClose() }
                     }
-                }
-                if onClose == nil {
-                    MainWindowLeadingToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
-                } else {
                     // In a sheet (from Diver Profile): the diver filter only, no app-wide buttons.
                     DiverFilterToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver)
+                    #if os(macOS)
+                    // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
+                    // navigation bar does. In a sheet macOS would draw a .primaryAction item as
+                    // the sheet's accent-filled default button, so it uses .sheetPrimaryAction.
+                    ToolbarItemGroup(placement: .sheetPrimaryAction) {
+                        addDocumentMenu
+                            .toolbarMenuIndicatorHiddenOnMac()
+                        documentsMoreMenu
+                            .toolbarMenuIndicatorHiddenOnMac()
+                    }
+                    #else
+                    ToolbarItem(placement: .primaryAction) {
+                        addDocumentMenu
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        documentsMoreMenu
+                    }
+                    #endif
+                } else {
+                    MainWindowToolbar(uniqueDivers: uniqueDivers, selectedDiver: $selectedDiver) {
+                        addDocumentMenu
+                        documentsMoreMenu
+                    }
                 }
-                #if os(macOS)
-                // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
-                // navigation bar does; separate items (especially menus) get separate capsules.
-                // Shown as a sheet (from Diver Profile, which passes onClose), macOS would draw
-                // a .primaryAction item as the sheet's accent-filled default button, so the
-                // sheet uses .sheetPrimaryAction.
-                ToolbarItemGroup(placement: onClose != nil ? .sheetPrimaryAction : .primaryAction) {
-                    addDocumentMenu
-                        .toolbarMenuIndicatorHiddenOnMac()
-                    documentsMoreMenu
-                        .toolbarMenuIndicatorHiddenOnMac()
-                }
-                #else
-                ToolbarItem(placement: .primaryAction) {
-                    addDocumentMenu
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    documentsMoreMenu
-                }
-                #endif
             }
             // --- Certification Sheets ---
             .sheet(isPresented: $showAddCertification) {

@@ -360,6 +360,7 @@ struct ContentView: View {
                 }
             }
 
+            .sideStripNavigationBar()
             .mainListSearchable(text: $store.searchText, prompt: Text("Site, location, buddy, country, type, tag, dive #…"))
             .animation(.easeInOut(duration: 0.3), value: store.searchText)
             .toolbar { toolbarContent }
@@ -903,13 +904,25 @@ struct ContentView: View {
                     #endif
                 } else {
                     diveListContainer {
+                        #if os(macOS)
                         diveRows(displayedSummaries, isGrouped: false, onDelete: deleteItems)
+                        #else
+                        // One section in the .sidebar style: the rows are the same rounded card,
+                        // inset from the edges, as in the list grouped by diver.
+                        Section {
+                            diveRows(displayedSummaries, isGrouped: false, onDelete: deleteItems)
+                        }
+                        #endif
                     }
                     .scrollContentBackground(.hidden)
                     .refreshable {
                         await forceiCloudSync()
                     }
+                    #if os(macOS)
                     .listStyle(.plain)
+                    #else
+                    .listStyle(.sidebar)
+                    #endif
                     .contentMargins(.top, 0, for: .scrollContent)
                     #if os(macOS)
                     // The rows are cards inset from the window's edges (see `MacListCard`).
@@ -946,67 +959,19 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        #if os(macOS)
-        // macOS joins toolbar controls into one Liquid Glass capsule per side only when they
-        // share a ToolbarItemGroup; a Menu in its own ToolbarItem gets a separate capsule with
-        // a ⌄ pull-down indicator. Grouping each side and hiding the indicators matches the
-        // iOS navigation bar. Each control is still a separate view, so toolbar overflow can
-        // manage them individually.
-        ToolbarItemGroup(placement: .navigation) {
-            DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver).picker
-                .toolbarMenuIndicatorHiddenOnMac()
-            SettingsToolbarButton()
-            CloudSyncToolbarButton()
+        MainWindowToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver) {
             if showCalculatorsMenu {
                 calculatorsMenu
-                    .toolbarMenuIndicatorHiddenOnMac()
             }
-        }
-        ToolbarItemGroup(placement: .primaryAction) {
+        } trailing: {
+            // + menu (Add/Import/Bluetooth), Filter and the More menu.
             addDiveMenu
-                .toolbarMenuIndicatorHiddenOnMac()
             filterButton
             moreMenu
-                .toolbarMenuIndicatorHiddenOnMac()
         }
-        #else
-        DiverFilterToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
-
-        // ── Left: Settings + Bluetooth + Tools Menu ──────────────────────
-        // On iOS use `.topBarLeading` (not `.navigation`) so these items stay
-        // pinned to the leading edge; `.navigation` is re-flowed to the trailing
-        // side by SwiftUI when popping back from a pushed detail view, which
-        // crams every leading button into the top-right. Matches DiverFilterToolbar.
-        ToolbarItem(placement: .topBarLeading) {
-            SettingsToolbarButton()
-        }
-        ToolbarItem(placement: .topBarLeading) {
-            CloudSyncToolbarButton()
-        }
-        if showCalculatorsMenu {
-            ToolbarItem(placement: .topBarLeading) {
-                calculatorsMenu
-            }
-        }
-        // ── Right ───────────────────────────────────────────────────────────
-
-        // + menu (Add/Import/Bluetooth) + Filter + overflow menu.
-        // Each control is its own ToolbarItem (not a shared HStack) so the system's
-        // toolbar-overflow layout can manage/overflow them independently instead of
-        // clipping the whole group when space is constrained.
-        ToolbarItem(placement: .primaryAction) {
-            addDiveMenu
-        }
-        ToolbarItem(placement: .primaryAction) {
-            filterButton
-        }
-        ToolbarItem(placement: .primaryAction) {
-            moreMenu
-        }
-        #endif
     }
 
-    // Main-window toolbar controls, shared by the iOS and macOS toolbar layouts above.
+    // Main-window toolbar controls, laid out for each platform by `MainWindowToolbar` above.
 
     private var addDiveMenu: some View {
         Menu {

@@ -104,7 +104,7 @@ struct MainTabView: View {
     @State private var gearToOpen: Gear? = nil
     @State private var certToRenew: Certification? = nil
     @State private var insuranceToRenew: DivingInsurance? = nil
-    /// App-wide sheets opened from every tab's toolbar (`MainWindowLeadingToolbar`).
+    /// App-wide sheets opened from every tab's toolbar (`MainWindowToolbar`).
     @State private var showSettings = false
     @State private var showSyncStatus = false
 
@@ -180,6 +180,8 @@ struct MainTabView: View {
             // window opens (a second window sweeps again and finds nothing).
             .task { await PhotoBlobSweeper.sweepLater(container: modelContext.container) }
         }
+        // Tells the tab roots when iOS draws their toolbar in a side strip (iPhone Duo).
+        .detectsToolbarSideStrip()
         .onReceive(NotificationCenter.default.publisher(for: .addDiveManual)) { _ in
             selectedTab = 0
         }

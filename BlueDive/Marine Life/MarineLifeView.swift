@@ -455,6 +455,7 @@ struct MarineLifeView: View {
             }
             // No title, as on the other tab roots (the tab bar names the tab).
             .navigationTitle("")
+            .sideStripNavigationBar()
             .mainListSearchable(text: $searchText, prompt: Text("Search marine life…"))
             .toolbar { toolbarContent }
             .background(AppBackground().ignoresSafeArea())
@@ -579,30 +580,14 @@ struct MarineLifeView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        MainWindowLeadingToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
-
-        #if os(macOS)
-        // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
-        // navigation bar does; separate items (especially menus) get separate capsules.
-        ToolbarItemGroup(placement: .primaryAction) {
+        MainWindowToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver) {
             addSpeciesButton
             filterButton
             catalogueMenu
         }
-        #else
-        ToolbarItem(placement: .primaryAction) {
-            addSpeciesButton
-        }
-        ToolbarItem(placement: .primaryAction) {
-            filterButton
-        }
-        ToolbarItem(placement: .primaryAction) {
-            catalogueMenu
-        }
-        #endif
     }
 
-    // Toolbar controls, shared by the iOS and macOS toolbar layouts above.
+    // Toolbar controls, laid out for each platform by `MainWindowToolbar` above.
 
     private var addSpeciesButton: some View {
         Button {

@@ -879,9 +879,7 @@ struct DiveMapView: View {
                 .padding(.bottom, 2)
             }
             .navigationTitle("")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .sideStripNavigationBar()
 
             .onAppear {
                 locationManager.requestWhenInUseAuthorization()
@@ -917,28 +915,15 @@ struct DiveMapView: View {
             .background(mapObservers)
             .background(filterObservers)
             .toolbar {
-                MainWindowLeadingToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver)
-                #if os(macOS)
-                // One ToolbarItemGroup so macOS shares a single glass capsule, as the iOS
-                // navigation bar does; separate items (especially menus) get separate capsules.
-                ToolbarItemGroup(placement: .primaryAction) {
+                MainWindowToolbar(uniqueDivers: store.cachedUniqueDivers, selectedDiver: $selectedDiver) {
                     mapFilterButton
                     mapMoreMenu
-                        .toolbarMenuIndicatorHiddenOnMac()
                 }
-                #else
-                ToolbarItem(placement: .primaryAction) {
-                    mapFilterButton
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    mapMoreMenu
-                }
-                #endif
             }
         }
     }
 
-    // Toolbar controls, shared by the iOS and macOS toolbar layouts above.
+    // Toolbar controls, laid out for each platform by `MainWindowToolbar` above.
 
     private var mapFilterButton: some View {
         Button(action: { showFilterSheet = true }) {
