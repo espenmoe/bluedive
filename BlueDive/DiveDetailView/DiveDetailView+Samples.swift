@@ -117,8 +117,8 @@ extension DiveDetailView {
                     label: "Distance",
                     value: {
                         switch dive.importDistanceUnit {
-                        case "feet": return NSLocalizedString("Feet", bundle: Bundle.forAppLanguage(), comment: "Unit name: feet")
-                        default:     return NSLocalizedString("Meters", bundle: Bundle.forAppLanguage(), comment: "Unit name: metres")
+                        case "feet": return NSLocalizedString("Feet", bundle: Bundle.forAppLanguage(), value: "Feet", comment: "Unit name: feet")
+                        default:     return NSLocalizedString("Metres", bundle: Bundle.forAppLanguage(), value: "Metres", comment: "Unit name: metres")
                         }
                     }(),
                     color: .cyan
@@ -140,8 +140,8 @@ extension DiveDetailView {
                     label: "Volume",
                     value: {
                         switch dive.importVolumeUnit {
-                        case "cubic feet": return NSLocalizedString("Cubic Feet", bundle: Bundle.forAppLanguage(), comment: "Unit name: cubic feet")
-                        default:           return NSLocalizedString("Liters", bundle: Bundle.forAppLanguage(), comment: "Unit name: litres")
+                        case "cubic feet": return NSLocalizedString("Cubic Feet", bundle: Bundle.forAppLanguage(), value: "Cubic Feet", comment: "Unit name: cubic feet")
+                        default:           return NSLocalizedString("Litres", bundle: Bundle.forAppLanguage(), value: "Litres", comment: "Unit name: litres")
                         }
                     }(),
                     color: .green

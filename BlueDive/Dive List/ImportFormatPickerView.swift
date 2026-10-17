@@ -142,7 +142,7 @@ struct ImportFormatPickerView: View {
     // MARK: - Option Sets
 
     private let distanceOptions: [(label: LocalizedStringKey, value: String)] = [
-        ("Meters (m)", "meters"),
+        ("Metres (m)", "meters"),
         ("Feet (ft)",  "feet")
     ]
 
@@ -159,7 +159,7 @@ struct ImportFormatPickerView: View {
     ]
 
     private let volumeOptions: [(label: LocalizedStringKey, value: String)] = [
-        ("Liters (L)",       "liters"),
+        ("Litres (L)",       "liters"),
         ("Cubic Feet (ft³)", "cubic feet")
     ]
 

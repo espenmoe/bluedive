@@ -1007,15 +1007,7 @@ final class Dive {
     func formattedRMV(forTankAt index: Int) -> String {
         let rmvLiters = calculatedRMV(forTankAt: index)
         guard rmvLiters > 0 else { return "—" }
-        let displayPreference = UserPreferences.shared.pressureUnit
-        let valueString: String
-        if displayPreference == .psi {
-            let rmvCuFt = rmvLiters / 28.3168
-            valueString = formatLocalizedNumber(rmvCuFt, minDecimals: 3, maxDecimals: 3) + " " + NSLocalizedString("unit.volume.rmv.cu_ft_per_min", bundle: .forAppLanguage(), comment: "RMV unit: cubic feet per minute")
-        } else {
-            valueString = formatLocalizedNumber(rmvLiters, minDecimals: 2, maxDecimals: 2) + " L/min"
-        }
-        return isRMVInNativeUnits ? valueString : valueString + " *"
+        return formatRMV(rmvLiters, pressureUnit: UserPreferences.shared.pressureUnit, isEstimated: !isRMVInNativeUnits)
     }
 
     /// Formatted SAC for a specific tank.
@@ -1145,15 +1137,7 @@ final class Dive {
     var formattedCombinedRMV: String {
         let rmvLiters = combinedRMV
         guard rmvLiters > 0 else { return "—" }
-        let displayPreference = UserPreferences.shared.pressureUnit
-        let valueString: String
-        if displayPreference == .psi {
-            let rmvCuFt = rmvLiters / 28.3168
-            valueString = formatLocalizedNumber(rmvCuFt, minDecimals: 3, maxDecimals: 3) + " " + NSLocalizedString("unit.volume.rmv.cu_ft_per_min", bundle: .forAppLanguage(), comment: "RMV unit: cubic feet per minute")
-        } else {
-            valueString = formatLocalizedNumber(rmvLiters, minDecimals: 2, maxDecimals: 2) + " L/min"
-        }
-        return isRMVInNativeUnits ? valueString : valueString + " *"
+        return formatRMV(rmvLiters, pressureUnit: UserPreferences.shared.pressureUnit, isEstimated: !isRMVInNativeUnits)
     }
 
     /// True when combined RMV cannot be computed accurately because there are multiple
@@ -1290,19 +1274,7 @@ final class Dive {
     var formattedRMV: String {
         let rmvLiters = calculatedRMV
         guard rmvLiters > 0 else { return "—" }
-
-        let displayPreference = UserPreferences.shared.pressureUnit
-
-        let valueString: String
-        if displayPreference == .psi {
-            // Convert L/min → cu ft/min (1 cu ft = 28.3168 L)
-            let rmvCuFt = rmvLiters / 28.3168
-            valueString = formatLocalizedNumber(rmvCuFt, minDecimals: 3, maxDecimals: 3) + " " + NSLocalizedString("unit.volume.rmv.cu_ft_per_min", bundle: .forAppLanguage(), comment: "RMV unit: cubic feet per minute")
-        } else {
-            valueString = formatLocalizedNumber(rmvLiters, minDecimals: 2, maxDecimals: 2) + " L/min"
-        }
-
-        return isRMVInNativeUnits ? valueString : valueString + " *"
+        return formatRMV(rmvLiters, pressureUnit: UserPreferences.shared.pressureUnit, isEstimated: !isRMVInNativeUnits)
     }
 
     /// Footnote explaining the `*` suffix on `formattedRMV`.

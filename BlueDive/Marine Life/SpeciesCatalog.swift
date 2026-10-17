@@ -123,8 +123,8 @@ enum SightingSpeciesKey: Hashable {
 
 /// Statistics of a species over the dives it was seen on, calculated when displayed.
 struct SpeciesMetrics {
-    /// Number of dives logging the species.
-    var sightings = 0
+    /// Number of dives logging the species (several sightings on one dive count once).
+    var diveCount = 0
     /// Mean of the dives' average depth, in the display unit; nil when no dive has one.
     var averageDepth: Double?
     /// Mean of the dives' water temperature, in the display unit; nil when no dive has one.
@@ -136,7 +136,7 @@ struct SpeciesMetrics {
     /// (stored 0) or a water temperature is left out of that mean, never estimated.
     @MainActor
     init(dives: [Dive]) {
-        sightings = dives.count
+        diveCount = dives.count
         let depths = dives.filter { $0.averageDepth > 0 }.map(\.displayAverageDepth)
         averageDepth = depths.isEmpty ? nil : depths.reduce(0, +) / Double(depths.count)
         let temperatures = dives.compactMap(\.displayWaterTemperature)

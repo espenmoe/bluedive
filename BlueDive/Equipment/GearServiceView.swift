@@ -351,7 +351,15 @@ struct GearServiceView: View {
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
                 
-                Text(gear.gearCategory?.localizedName ?? LocalizedStringKey(gear.category))
+                // Shown like its Equipment list section: an empty stored value as Other, an
+                // unrecognized one as stored (never used as a translation key).
+                Group {
+                    if let category = displayCategory(of: gear) {
+                        Text(category.localizedName)
+                    } else {
+                        Text(verbatim: gear.category)
+                    }
+                }
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundStyle(.cyan)

@@ -22,6 +22,11 @@ struct GearListView: View {
     /// Gear awaiting confirmation after Delete was chosen in a row's context menu.
     @State private var gearToDelete: Gear?
     @State private var searchText = ""
+    /// Memoized category work for `filteredGear`, which runs several times per render: the
+    /// resolved category of each stored value and the search's category-name matches. A plain
+    /// reference read synchronously in the body (never a value set after rendering, which
+    /// would filter one keystroke late).
+    @State private var categoryCache = GearCategoryCache()
     /// The service banner's X: hides it until the app is relaunched.
     @State private var isServiceBannerDismissed = false
     @State private var filterCategory: GearCategory?
@@ -85,16 +90,23 @@ struct GearListView: View {
             gear = gear.filter { $0.diverName.trimmingCharacters(in: .whitespaces) == selectedDiver }
         }
 
-        // Filtre par catégorie
+        // Filtre par catégorie (resolved like the section titles: aliases and older
+        // export keys count as their category)
         if let category = filterCategory {
-            gear = gear.filter { $0.category == category.rawValue }
+            gear = gear.filter { categoryCache.category(of: $0) == category }
         }
 
         // Filtre par recherche
         if !searchText.isEmpty {
+            // The category is stored in English (or as an older export key / alias): also
+            // match its name in the app language, so "Premier étage" finds first stages.
+            // Resolved through `gearCategory`, as the section titles and the filter are.
+            let matchingCategories = categoryCache.categories(matching: searchText)
+            // Every field ignores accents as well as case ("regulateur" finds "Régulateur").
             gear = gear.filter { item in
-                item.name.localizedCaseInsensitiveContains(searchText) ||
-                item.category.localizedCaseInsensitiveContains(searchText)
+                item.name.localizedStandardContains(searchText) ||
+                item.category.localizedStandardContains(searchText) ||
+                (categoryCache.category(of: item).map { matchingCategories.contains($0) } ?? false)
             }
         }
 
@@ -102,19 +114,8 @@ struct GearListView: View {
     }
     
     /// Équipement groupé par catégorie
-    private var groupedGear: [(key: String, value: [Gear])] {
-        let grouped = Dictionary(grouping: filteredGear, by: { $0.category })
-        let bundle = Bundle.forAppLanguage()
-        // Resolve each localized sort key once (O(n)) rather than per comparison (O(n log n)).
-        var sortKeys = [String: String](minimumCapacity: grouped.count)
-        for key in grouped.keys {
-            sortKeys[key] = GearCategory(exportKeyOrRawValue: key).map {
-                NSLocalizedString("gear.category." + $0.rawValue, bundle: bundle, comment: "")
-            } ?? key
-        }
-        return grouped.sorted {
-            (sortKeys[$0.key] ?? $0.key).compare(sortKeys[$1.key] ?? $1.key, locale: locale) == .orderedAscending
-        }
+    private var groupedGear: [(key: String, items: [Gear])] {
+        gearCategorySections(filteredGear, locale: locale) { categoryCache.category(of: $0) }
     }
 
     private var sortedCategories: [GearCategory] {
@@ -229,7 +230,7 @@ struct GearListView: View {
         .onChange(of: selectedDiver) {
             if let cat = filterCategory {
                 let relevant = selectedDiver.isEmpty ? allGear : allGear.filter { $0.diverName == selectedDiver }
-                if !relevant.contains(where: { $0.category == cat.rawValue }) {
+                if !relevant.contains(where: { categoryCache.category(of: $0) == cat }) {
                     filterCategory = nil
                 }
             }
@@ -257,8 +258,8 @@ struct GearListView: View {
             EditGearView(gear: gear)
                 .standardSheetPresentation()
         }
-        // Right-click / long-press Delete asks first: a menu item is easier to hit by
-        // accident than a deliberate swipe (which deletes at once, as before).
+        // Every delete asks first — swipe (iOS .onDelete, macOS swipe action) and the
+        // right-click / long-press Delete — as tank templates and gear groups do.
         .alert(
             "Delete equipment?",
             isPresented: Binding(
@@ -613,11 +614,12 @@ struct GearListView: View {
                         }
                         #if os(macOS)
                         // macOS does not synthesize swipe-to-delete from .onDelete (iOS does): add it
-                        // explicitly, routed through the same handler as .onDelete.
+                        // explicitly, routed through the same handler as .onDelete
+                        // (requestDeleteGear: the "Delete equipment?" alert).
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 if let index = items.firstIndex(of: item) {
-                                    deleteGear(items: items, at: IndexSet(integer: index))
+                                    requestDeleteGear(items: items, at: IndexSet(integer: index))
                                 }
                             } label: {
                                 Label("Delete", systemImage: "trash")
@@ -627,18 +629,10 @@ struct GearListView: View {
                         #endif
                     }
                     .onDelete { indexSet in
-                        deleteGear(items: items, at: indexSet)
+                        requestDeleteGear(items: items, at: indexSet)
                     }
                 } header: {
-                    HStack {
-                        if let gearCategory = GearCategory.allCases.first(where: { $0.rawValue == category }) {
-                            Image(systemName: gearCategory.icon)
-                                .accessibilityHidden(true)
-                            Text(gearCategory.localizedName)
-                        } else {
-                            Text(category)
-                        }
-                    }
+                    GearCategorySectionTitle(key: category, showsIcon: true)
                     .font(.headline)
                     .foregroundStyle(.cyan)
                 }
@@ -671,8 +665,8 @@ struct GearListView: View {
             (showInactive || !gear.isInactive)
                 && (selectedDiver.isEmpty || gear.diverName.trimmingCharacters(in: .whitespaces) == selectedDiver)
         }
-        let used = Set(diverBase.map(\.category))
-        return sortedCategories.filter { used.contains($0.rawValue) || $0 == filterCategory }
+        let used = Set(diverBase.compactMap { categoryCache.category(of: $0) })
+        return sortedCategories.filter { used.contains($0) || $0 == filterCategory }
     }
 
     private func resetFilters() {
@@ -764,8 +758,16 @@ struct GearListView: View {
 
     // MARK: - Actions
     
-    /// Deletes one gear item (context-menu Delete, after confirmation), with the same steps
-    /// as swipe-to-delete.
+    /// Swipe-to-delete (iOS .onDelete and the macOS swipe action): asks through the
+    /// "Delete equipment?" alert instead of deleting at once. A swipe always passes a single
+    /// row (this list has no edit mode for multiple selection), so only the first offset is
+    /// used.
+    private func requestDeleteGear(items: [Gear], at offsets: IndexSet) {
+        guard let index = offsets.first, items.indices.contains(index) else { return }
+        gearToDelete = items[index]
+    }
+
+    /// Deletes one gear item once the "Delete equipment?" alert is confirmed.
     private func deleteGear(_ gear: Gear) {
         deleteGear(items: [gear], at: IndexSet(integer: 0))
     }
@@ -1043,8 +1045,7 @@ struct GearListView: View {
     private func makeGearPreviewItems(_ items: [GearXMLParser.ParsedGear]) -> [ImportPreviewItem] {
         let bundle = Bundle.forAppLanguage()
         return items.map { item in
-            let category = GearCategory(exportKeyOrRawValue: item.category)
-                .map { NSLocalizedString("gear.category." + $0.rawValue, bundle: bundle, comment: "") }
+            let category = GearCategory(exportKeyOrRawValue: item.category)?.localizedDisplayName(bundle: bundle)
                 ?? item.category
             let detail = item.diverName.isEmpty ? category : "\(category) • \(item.diverName)"
             return ImportPreviewItem(name: item.name, detail: detail)
@@ -1594,5 +1595,38 @@ struct GearFilterSheet: View {
         }
         .chipRowFade()
         #endif
+    }
+}
+
+/// Memo for `GearListView`'s category work.
+@MainActor
+private final class GearCategoryCache {
+    /// `displayCategory(of:)` (lowercasing and scans of every case and alias) per stored
+    /// value: the result depends only on the stored string, and there are only a few distinct
+    /// ones.
+    private var resolved: [String: GearCategory?] = [:]
+    private var key: (text: String, language: AppLanguage)?
+    private var matches: Set<GearCategory> = []
+
+    func category(of gear: Gear) -> GearCategory? {
+        let stored = gear.category
+        if let cached = resolved[stored] { return cached }
+        let category = displayCategory(of: gear)
+        resolved[stored] = category
+        return category
+    }
+
+    /// The categories whose name in the app language contains `text`; recomputed only when
+    /// the text or the app language changes.
+    func categories(matching text: String) -> Set<GearCategory> {
+        let language = UserPreferences.shared.languageMode
+        if let key, key.text == text, key.language == language { return matches }
+        let bundle = Bundle.forAppLanguage()
+        matches = Set(GearCategory.allCases.filter {
+            // Ignores accents as well as case: "premier etage" finds "Premier étage".
+            $0.localizedDisplayName(bundle: bundle).localizedStandardContains(text)
+        })
+        key = (text, language)
+        return matches
     }
 }

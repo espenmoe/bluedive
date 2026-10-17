@@ -54,6 +54,9 @@ struct StatisticsView: View {
     @State private var cachedShallowestDive: Dive? = nil
     @State private var cachedAvgTemp: String = "—"
     @State private var cachedAvgRMV: String = "—"
+    /// Some RMV dive was not recorded in bar and litres: the values carry " *", explained by
+    /// `rmvFootnote`.
+    @State private var cachedRMVIsEstimated = false
     @State private var cachedBestRMVDive: Dive? = nil
     @State private var cachedWorstRMVDive: Dive? = nil
     @State private var cachedAvgSAC: String = "—"
@@ -137,14 +140,18 @@ struct StatisticsView: View {
         let avgDepth = depthDives.isEmpty ? 0 : depthDives.map(\.displayAverageDepth).reduce(0, +) / Double(depthDives.count)
         let sortedDives = dives.sorted { $0.timestamp > $1.timestamp }
 
-        let grouped = Dictionary(grouping: dives) { $0.siteName }
-        let topSites: [(name: String, location: String, country: String, count: Int)] = grouped.map { (name, group) in
-            let firstDive = group.first
-            return (name, firstDive?.location ?? "", firstDive?.siteCountry ?? "", group.count)
+        // Same site rule as the Sites count: "Blue Hole" and "blue hole " are one site, and
+        // dives without a site are not a Top Site.
+        let grouped = Dictionary(grouping: dives) { siteNameKey($0.siteName) }.filter { !$0.key.isEmpty }
+        // Ranked first, so the display spelling is worked out only for the five shown.
+        let topSiteGroups = grouped.sorted { $0.value.count > $1.value.count }.prefix(5)
+        let topSites: [(name: String, location: String, country: String, count: Int)] = topSiteGroups.map { (_, group) in
+            let name = displaySiteName(group.map(\.siteName))
+            // Location and country from a dive with the spelling shown, so a merged "blue hole"
+            // logged elsewhere cannot lend its place to "Blue Hole".
+            let sourceDive = group.first { $0.siteName.trimmingCharacters(in: .whitespacesAndNewlines) == name } ?? group.first
+            return (name, sourceDive?.location ?? "", sourceDive?.siteCountry ?? "", group.count)
         }
-        .sorted { $0.count > $1.count }
-        .prefix(5)
-        .map { $0 }
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = locale
@@ -164,7 +171,8 @@ struct StatisticsView: View {
         .map { (month: $0.month, count: $0.count) }
 
         // --- Career overview scalars ---
-        let uniqueSites = Set(dives.map { $0.siteName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty }).count
+        // The Top Sites groups are exactly the distinct sites (same `siteNameKey` rule).
+        let uniqueSites = grouped.count
         let uniqueCountries = Set(dives.compactMap { $0.siteCountry?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }).count
         let divingDays = Set(dives.map { calendar.startOfDay(for: $0.timestamp) }).sorted()
         var longestStreak = divingDays.isEmpty ? 0 : 1
@@ -287,26 +295,14 @@ struct StatisticsView: View {
         let avgTempValue = warmTemps.isEmpty ? 0.0 : warmTemps.reduce(0, +) / Double(warmTemps.count)
         let avgTempStr = warmDives.isEmpty ? "—" : avgTempValue.localizedString(decimals: 0) + tempSymbol
 
-        // --- RMV stats ---
-        let rmvDives = dives.filter { $0.calculatedRMV > 0 }
-        let avgRMVStr: String
-        let bestRMVDive: Dive?
-        let worstRMVDive: Dive?
-        if rmvDives.isEmpty {
-            avgRMVStr = "—"
-            bestRMVDive = nil; worstRMVDive = nil
-        } else {
-            let rmvValues = rmvDives.map { $0.calculatedRMV }
-            let avgRMVL = rmvValues.reduce(0, +) / Double(rmvValues.count)
-            let isMetricRMV = prefs.pressureUnit != .psi
-            let avgRMVFormatted = isMetricRMV
-                ? avgRMVL.localizedString(decimals: 2, minDecimals: 2) + " L/min"
-                : (avgRMVL / 28.3168).localizedString(decimals: 3, minDecimals: 3) + " " + NSLocalizedString("unit.volume.rmv.cu_ft_per_min", bundle: .forAppLanguage(), comment: "RMV unit: cubic feet per minute")
-            let hasNonNative = rmvDives.contains { !$0.isRMVInNativeUnits }
-            avgRMVStr = hasNonNative ? avgRMVFormatted + " *" : avgRMVFormatted
-            bestRMVDive = rmvDives.min(by: { $0.calculatedRMV < $1.calculatedRMV })
-            worstRMVDive = rmvDives.max(by: { $0.calculatedRMV < $1.calculatedRMV })
-        }
+        // --- RMV stats --- (one pass, the same rule as the trip details: `rmvAggregate`)
+        let rmv = rmvAggregate(dives)
+        let rmvIsEstimated = rmv.isEstimated
+        let bestRMVDive = rmv.best
+        let worstRMVDive = rmv.worst
+        let avgRMVStr = rmv.average > 0
+            ? formatRMV(rmv.average, pressureUnit: prefs.pressureUnit, isEstimated: rmv.isEstimated)
+            : "—"
 
         // --- SAC stats ---
         let sacDives = dives.filter { $0.calculatedSAC > 0 }
@@ -351,6 +347,7 @@ struct StatisticsView: View {
         cachedShallowestDive = shallowestDive
         cachedAvgTemp = avgTempStr
         cachedAvgRMV = avgRMVStr
+        cachedRMVIsEstimated = rmvIsEstimated
         cachedBestRMVDive = bestRMVDive
         cachedWorstRMVDive = worstRMVDive
         cachedAvgSAC = avgSACStr
@@ -416,12 +413,15 @@ struct StatisticsView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                                     .padding(.horizontal)
 
-                                    HStack(spacing: 12) {
-                                        temperatureTile
-                                        rmvTile
-                                        sacTile
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 12) {
+                                            temperatureTile
+                                            rmvTile
+                                            sacTile
+                                        }
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        rmvFootnote
                                     }
-                                    .fixedSize(horizontal: false, vertical: true)
                                     .padding(.horizontal)
                                 }
                             } narrow: {
@@ -560,9 +560,12 @@ struct StatisticsView: View {
                 set: { if !$0 { selectedSiteName = nil } }
             )) {
                 if let siteName = selectedSiteName {
+                    // Matched by site name when shown (not by identifiers saved with the stats,
+                    // which a dive saved since would no longer match).
+                    let selectedKey = siteNameKey(siteName)
                     SiteDivesSheet(
                         siteName: siteName,
-                        dives: filteredDives.filter { $0.siteName == siteName }
+                        dives: filteredDives.filter { siteNameKey($0.siteName) == selectedKey }
                     )
                     .standardSheetPresentation()
                 }
@@ -1174,11 +1177,23 @@ struct StatisticsView: View {
     // MARK: - RMV & SAC Section
 
     private var rmvSacSection: some View {
-        HStack(spacing: 12) {
-            rmvTile
-            sacTile
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                rmvTile
+                sacTile
+            }
+            rmvFootnote
         }
         .padding(.horizontal)
+    }
+
+    /// Explains the " *" on the RMV values, as the trip details and a dive's Gas tab do; below
+    /// the tiles rather than inside one, so the RMV tile keeps the height of its neighbours.
+    @ViewBuilder
+    private var rmvFootnote: some View {
+        if cachedRMVIsEstimated {
+            EstimatedRMVFootnote()
+        }
     }
 
     /// RMV tile (paired with SAC on iOS; one of three per row on macOS).

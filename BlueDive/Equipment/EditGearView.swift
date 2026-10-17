@@ -17,6 +17,16 @@ struct EditGearView: View {
 
     @State private var name: String
     @State private var selectedCategory: GearCategory
+    /// Whether the user chose a category in the menu. Saving writes the category only then
+    /// (even the one already shown, so a non-standard stored value such as "computer" or
+    /// "Camera Housing" can be corrected); untouched, the stored value — e.g. "Regulator",
+    /// shown as Second Stage — is kept as it is. `@State`, not a `let`, so a parent re-render
+    /// (an iCloud sync) cannot reset it while the editor is open.
+    @State private var categoryPicked = false
+    /// The stored category when no category matches it (e.g. "Camera Housing", which the
+    /// Equipment list shows as its own section): shown as the menu's label, instead of the
+    /// "Other" it opens on, until the user picks a category. `@State`, read once at init.
+    @State private var unrecognizedStoredCategory: String?
     @State private var weightContribution: Double
     @State private var weightContributionText: String
     @State private var weightContributionUnit: String
@@ -57,8 +67,10 @@ struct EditGearView: View {
 
         // Seed all state from the existing Gear object
         _name = State(initialValue: gear.name)
-        _selectedCategory = State(
-            initialValue: GearCategory.allCases.first { $0.rawValue == gear.category } ?? .other
+        _selectedCategory = State(initialValue: gear.gearCategory ?? .other)
+        let storedCategory = gear.category.trimmingCharacters(in: .whitespacesAndNewlines)
+        _unrecognizedStoredCategory = State(
+            initialValue: gear.gearCategory == nil && !storedCategory.isEmpty ? gear.category : nil
         )
         _weightContribution = State(initialValue: gear.weightContribution)
         _weightContributionText = State(initialValue: gear.weightContribution == 0 ? "0" : gear.weightContribution.editableString(decimals: 2))
@@ -194,6 +206,7 @@ struct EditGearView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             selectedCategory = category
+                            categoryPicked = true
                         }
                     } label: {
                         Label(category.localizedName, systemImage: category.icon)
@@ -205,8 +218,14 @@ struct EditGearView: View {
                         .foregroundStyle(categoryColor(for: selectedCategory))
                         .font(.title3)
 
-                    Text(selectedCategory.localizedName)
-                        .fontWeight(.medium)
+                    Group {
+                        if !categoryPicked, let unrecognizedStoredCategory {
+                            Text(verbatim: unrecognizedStoredCategory)
+                        } else {
+                            Text(selectedCategory.localizedName)
+                        }
+                    }
+                    .fontWeight(.medium)
 
                     Spacer()
 
@@ -609,7 +628,9 @@ struct EditGearView: View {
         let priceValue = prefilledPurchasePrice.resolve(purchasePrice)
 
         gear.name = trimmedName
-        gear.category = selectedCategory.rawValue
+        if categoryPicked {
+            gear.category = selectedCategory.rawValue
+        }
         gear.manufacturer = manufacturerText.trimmingCharacters(in: .whitespaces).isEmpty ? nil : manufacturerText.trimmingCharacters(in: .whitespaces)
         gear.model = modelText.trimmingCharacters(in: .whitespaces).isEmpty ? nil : modelText.trimmingCharacters(in: .whitespaces)
         gear.serialNumber = serialNumber.trimmingCharacters(in: .whitespaces).isEmpty ? nil : serialNumber.trimmingCharacters(in: .whitespaces)

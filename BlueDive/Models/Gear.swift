@@ -201,14 +201,54 @@ enum GearCategory: String, CaseIterable, Identifiable {
         return LocalizedStringKey(key)
     }
 
+    /// Display name for this gear category in the app language, as a `String` (sorting,
+    /// search, import previews), from an already resolved `Bundle.forAppLanguage()` so callers
+    /// naming several categories resolve the bundle once. One literal key per case so Xcode's
+    /// string catalog detects every key (CLAUDE.md: never pass a runtime variable as the key);
+    /// same keys as `localizedName`.
+    func localizedDisplayName(bundle: Bundle) -> String {
+        switch self {
+        case .suit: return NSLocalizedString("gear.category.Wetsuit", bundle: bundle, value: "Wetsuit", comment: "Gear category name")
+        case .tank: return NSLocalizedString("gear.category.Tank", bundle: bundle, value: "Tank", comment: "Gear category name")
+        case .firstStage: return NSLocalizedString("gear.category.First Stage", bundle: bundle, value: "First Stage", comment: "Gear category name")
+        case .secondStage: return NSLocalizedString("gear.category.Second Stage", bundle: bundle, value: "Second Stage", comment: "Gear category name")
+        case .bcd: return NSLocalizedString("gear.category.BCD/Backplate", bundle: bundle, value: "BCD/Backplate", comment: "Gear category name")
+        case .weights: return NSLocalizedString("gear.category.Weights", bundle: bundle, value: "Weights", comment: "Gear category name")
+        case .computer: return NSLocalizedString("gear.category.Computer", bundle: bundle, value: "Computer", comment: "Gear category name")
+        case .fins: return NSLocalizedString("gear.category.Fins", bundle: bundle, value: "Fins", comment: "Gear category name")
+        case .mask: return NSLocalizedString("gear.category.Mask", bundle: bundle, value: "Mask", comment: "Gear category name")
+        case .snorkel: return NSLocalizedString("gear.category.Snorkel", bundle: bundle, value: "Snorkel", comment: "Gear category name")
+        case .underwear: return NSLocalizedString("gear.category.Undersuit", bundle: bundle, value: "Undersuit", comment: "Gear category name")
+        case .drysuit: return NSLocalizedString("gear.category.Drysuit", bundle: bundle, value: "Drysuit", comment: "Gear category name")
+        case .reel: return NSLocalizedString("gear.category.Reel", bundle: bundle, value: "Reel", comment: "Gear category name")
+        case .gloves: return NSLocalizedString("gear.category.Gloves", bundle: bundle, value: "Gloves", comment: "Gear category name")
+        case .backplate: return NSLocalizedString("gear.category.Backplate", bundle: bundle, value: "Backplate", comment: "Gear category name")
+        case .hood: return NSLocalizedString("gear.category.Hood", bundle: bundle, value: "Hood", comment: "Gear category name")
+        case .boots: return NSLocalizedString("gear.category.Boots", bundle: bundle, value: "Boots", comment: "Gear category name")
+        case .knife: return NSLocalizedString("gear.category.Knife", bundle: bundle, value: "Knife", comment: "Gear category name")
+        case .light: return NSLocalizedString("gear.category.Light", bundle: bundle, value: "Light", comment: "Gear category name")
+        case .compass: return NSLocalizedString("gear.category.Compass", bundle: bundle, value: "Compass", comment: "Gear category name")
+        case .surfaceMarker: return NSLocalizedString("gear.category.SMB", bundle: bundle, value: "SMB", comment: "Gear category name")
+        case .wing: return NSLocalizedString("gear.category.Wing", bundle: bundle, value: "Wing", comment: "Gear category name")
+        case .transmitter: return NSLocalizedString("gear.category.Transmitter", bundle: bundle, value: "Transmitter", comment: "Gear category name")
+        case .analyzer: return NSLocalizedString("gear.category.Analyzer", bundle: bundle, value: "Analyzer", comment: "Gear category name")
+        case .spg: return NSLocalizedString("gear.category.SPG", bundle: bundle, value: "SPG", comment: "Gear category name")
+        case .whistle: return NSLocalizedString("gear.category.Whistle", bundle: bundle, value: "Whistle", comment: "Gear category name")
+        case .tool: return NSLocalizedString("gear.category.Tool", bundle: bundle, value: "Tool", comment: "Gear category name")
+        case .camera: return NSLocalizedString("gear.category.Camera", bundle: bundle, value: "Camera", comment: "Gear category name")
+        case .rebreather: return NSLocalizedString("gear.category.Rebreather", bundle: bundle, value: "Rebreather", comment: "Gear category name")
+        case .other: return NSLocalizedString("gear.category.Other", bundle: bundle, value: "Other", comment: "Gear category name")
+        }
+    }
+
     /// Returns all cases sorted alphabetically by localized display name for the given locale.
     static func sorted(for locale: Locale) -> [GearCategory] {
+        // Each name resolved once (not twice per comparison), from one bundle lookup.
         let bundle = Bundle.forAppLanguage()
-        return allCases.sorted {
-            let lhs = NSLocalizedString("gear.category." + $0.rawValue, bundle: bundle, comment: "")
-            let rhs = NSLocalizedString("gear.category." + $1.rawValue, bundle: bundle, comment: "")
-            return lhs.compare(rhs, locale: locale) == .orderedAscending
-        }
+        return allCases
+            .map { (category: $0, name: $0.localizedDisplayName(bundle: bundle)) }
+            .sorted { $0.name.compare($1.name, locale: locale) == .orderedAscending }
+            .map(\.category)
     }
 
     /// Canonical English key used in XML export/import round-trips.

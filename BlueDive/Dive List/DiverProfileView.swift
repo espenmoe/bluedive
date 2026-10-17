@@ -69,6 +69,12 @@ struct DiverProfileView: View {
     @State private var profileAppeared = false
     @State private var selectedCertification: Certification?
     @State private var selectedInsurance: DivingInsurance?
+    /// Bumped whenever the dives' summaries change (site names are part of them, edited here
+    /// or on another device), so `siteCountCache` recounts then and only then.
+    @State private var summariesVersion = 0
+    /// The Sites count, memoized per diver filter and `summariesVersion`: it normalizes every
+    /// dive's site name, and this page re-renders on every store update.
+    @State private var siteCountCache = SiteCountCache()
 
     // MARK: - Diver Filter
 
@@ -105,7 +111,9 @@ struct DiverProfileView: View {
     }
 
     private var uniqueSites: Int {
-        Set(filteredDives.map { $0.siteName }).count
+        siteCountCache.count(diver: selectedDiver, version: summariesVersion) {
+            uniqueSiteCount(filteredDives.map(\.siteName))
+        }
     }
 
     /// Distinct species: a linked sighting counts as its species, an unlinked one as its name
@@ -257,6 +265,7 @@ struct DiverProfileView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .navigationTitle("")
+            .onChange(of: store.cachedSummaries) { _, _ in summariesVersion += 1 }
 
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1544,4 +1553,17 @@ struct AddInsuranceView: View {
     }
 }
 
+/// Memo for `DiverProfileView`'s Sites count, recomputed only for another diver filter or
+/// another `version` (a change in the dives' summaries, which hold the site names).
+@MainActor
+private final class SiteCountCache {
+    private var key: (diver: String, version: Int)?
+    private var value = 0
 
+    func count(diver: String, version: Int, compute: () -> Int) -> Int {
+        if let key, key.diver == diver, key.version == version { return value }
+        value = compute()
+        key = (diver, version)
+        return value
+    }
+}

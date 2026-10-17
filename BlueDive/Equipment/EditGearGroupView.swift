@@ -7,6 +7,8 @@ struct EditGearGroupView: View {
     @Bindable var gearGroup: GearGroup
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    /// The app language (in-app override), for sorting the category sections as the Equipment list does.
+    @Environment(\.locale) private var locale
     @Query(sort: \Gear.name) private var allGear: [Gear]
 
     // MARK: - Form State
@@ -40,12 +42,9 @@ struct EditGearGroupView: View {
 
     /// Gear items grouped by category for the selection list.
     /// Shows active gear + any inactive gear already in the group.
+    /// Same sections and order as the Equipment list (`gearCategorySections`).
     private var groupedGear: [(key: String, items: [Gear])] {
-        let visibleGear = allGear.filter { !$0.isInactive || selectedGearIds.contains($0.id) }
-        let grouped = Dictionary(grouping: visibleGear) { gear in
-            GearCategory(rawValue: gear.category)?.rawValue ?? gear.category
-        }
-        return grouped.sorted { $0.key < $1.key }.map { (key: $0.key, items: $0.value) }
+        gearCategorySections(allGear.filter { !$0.isInactive || selectedGearIds.contains($0.id) }, locale: locale)
     }
 
     // MARK: - Body
@@ -179,7 +178,7 @@ struct EditGearGroupView: View {
             } else {
                 ForEach(groupedGear, id: \.key) { category, items in
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(GearCategory(rawValue: category)?.localizedName ?? LocalizedStringKey(category))
+                        GearCategorySectionTitle(key: category)
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
@@ -197,7 +196,7 @@ struct EditGearGroupView: View {
 
     private func gearSelectionRow(_ gear: Gear) -> some View {
         let isSelected = selectedGearIds.contains(gear.id)
-        let gearCategory = GearCategory(rawValue: gear.category)
+        let gearCategory = displayCategory(of: gear)
 
         return Button {
             toggleGearSelection(gear)

@@ -25,7 +25,6 @@ BlueDive is a modern, actively maintained dive log app designed as a full-featur
 - **Gear management** — Track your equipment, gear groups, tank templates, and service history
 - **Dive sequence** — Automatic dive renumbering, surface interval recalculation, and merging of dives
 - **Trips, map & statistics** — Group dives by trip, browse your dive sites on a map, and visualize your diving history with charts and a calendar heatmap
-- **Gas planning tools** — Best Mix, Gas Density, and Minimum Gas calculators
 - **Certifications & insurance** — Store, import, and export certification records and diving insurance details
 - **Reminders** — Notifications for upcoming gear service and for certification and insurance expiry
 - **Database backup** — Back up your full logbook as a zip archive

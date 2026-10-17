@@ -14,7 +14,7 @@ struct WelcomeWizardView: View {
             title: "Welcome to BlueDive",
             subtitle: "Your modern personal dive logbook",
             features: [
-                Feature(icon: "doc.badge.plus", color: .blue, title: "Import Formats", description: "Import from BlueDive XML, MacDive XML, UDDF, or Garmin FIT files — all major dive log formats supported."),
+                Feature(icon: "doc.badge.plus", color: .blue, title: "Import Formats", description: "Import from BlueDive XML, MacDive XML, UDDF, Subsurface, or Garmin FIT files — all major dive log formats supported."),
                 Feature(icon: "antenna.radiowaves.left.and.right", color: .cyan, title: "Bluetooth Sync", description: "Connect directly to your dive computer via Bluetooth to download dives wirelessly."),
                 Feature(icon: "plus.circle", color: .green, title: "Manual Entry", description: "Log dives manually with full control over date, depth, duration, and all details."),
             ]
@@ -56,7 +56,7 @@ struct WelcomeWizardView: View {
             features: [
                 Feature(icon: "wrench.and.screwdriver", color: .gray, title: "Equipment", description: "Track your gear with service dates and get automatic maintenance reminders."),
                 Feature(icon: "tray.2", color: .brown, title: "Gear Groups", description: "Organize equipment into groups — e.g. tropical kit, cold water setup."),
-                Feature(icon: "cylinder", color: .mint, title: "Tank Templates", description: "Save your favorite tank configurations for quick reuse."),
+                Feature(icon: "cylinder", color: .mint, title: "Tank Templates", description: "Save your favourite tank configurations for quick reuse."),
                 Feature(icon: "graduationcap", color: .blue, title: "Certifications", description: "Store diving certifications and get expiry alerts."),
                 Feature(icon: "shield", color: .green, title: "Diving Insurance", description: "Store your dive insurance policies and keep renewal dates at hand."),
             ]
@@ -81,7 +81,7 @@ struct WelcomeWizardView: View {
             features: [
                 Feature(icon: "icloud", color: .cyan, title: "iCloud Sync", description: "Your dives sync automatically across all your Apple devices."),
                 Feature(icon: "square.and.arrow.up", color: .indigo, title: "Export Anytime", description: "Export your logbook to XML, UDDF or PDF format whenever you need."),
-                Feature(icon: "rectangle.3.group", color: .blue, title: "Home Screen Widgets", description: "Add BlueDive widgets to your home screen for quick access to your recent dives and dive stats."),
+                Feature(icon: "rectangle.3.group", color: .blue, title: "Widgets", description: "Add BlueDive widgets to your Home Screen or desktop to start a new dive in one tap and see your dive count and diver stats."),
                 Feature(icon: "person.circle", color: .pink, title: "Diver Profile", description: "Keep your diver info, emergency contacts, and insurance details handy."),
                 Feature(icon: "gear", color: .gray, title: "Settings", description: "Choose your units (metric/imperial), appearance, language, and notification preferences."),
                 Feature(icon: "book", color: .blue, title: "Documentation", description: "Guides, tips, and reference material to help you get the most out of BlueDive.", url: wikiDocumentationURL),

@@ -38,9 +38,14 @@ struct DiveComputerIconView: View {
 
     private static func assetName(forName name: String?) -> String? {
         guard let name = name else { return nil }
-        // Exact model name → per-model asset (used when model is known/resolved)
+        // Exact model name → per-model asset (used when model is known/resolved). Not every
+        // supported model has artwork: without it, fall through to the brand-level icon below
+        // (a missing asset name would draw an empty circle).
         if DeviceConfiguration.supportedModels.contains(where: { $0.name == name }) {
-            return modelLevelAssetName(name)
+            let modelAsset = modelLevelAssetName(name)
+            if PlatformImage(named: modelAsset) != nil {
+                return modelAsset
+            }
         }
         // BLE advertisement name → brand-level fallback
         // Order matters: "oceanic" must precede "oceans"; "deepblu" must precede any future "deep" prefix.

@@ -73,10 +73,11 @@ struct DiveCalendarHeatmapView: View {
             .filter { calendar.component(.year, from: $0.timestamp) == selectedYear }
             .map(\.duration).reduce(0, +)
 
-        cachedYearUniqueSites = Set(
+        // Same site rule as Statistics, Diver Profile and the trips (`siteNameKey`).
+        cachedYearUniqueSites = uniqueSiteCount(
             dives.filter { calendar.component(.year, from: $0.timestamp) == selectedYear }
-                 .map { $0.siteName.lowercased() }
-        ).count
+                 .map(\.siteName)
+        )
 
         var monthCounts: [Int: Int] = [:]
         for month in 1...12 {
@@ -404,6 +405,8 @@ struct DiveCalendarHeatmapView: View {
 
             // Day grid
             let offset = leadingEmptyDays(for: month)
+            // 20 m in the display unit, read once per month rather than in every cell.
+            let shallowDepthLimit = UserPreferences.shared.depthUnit.convert(20)
 
             LazyVGrid(columns: monthColumns, spacing: 2) {
                 // Leading blank cells
@@ -422,7 +425,9 @@ struct DiveCalendarHeatmapView: View {
                     CalendarDayCell(
                         dayNumber: dayNumber,
                         divesCount: divesOnDay.count,
-                        maxDepth: divesOnDay.map(\.maxDepth).max() ?? 0,
+                        // Compared in the display unit: raw maxDepth is in each dive's own
+                        // imported unit (metres or feet).
+                        isShallow: (divesOnDay.map(\.displayMaxDepth).max() ?? 0) < shallowDepthLimit,
                         isSelected: isSelected,
                         isToday: isToday
                     )
@@ -543,13 +548,14 @@ struct DayDivesSheetView: View {
 struct CalendarDayCell: View {
     let dayNumber: Int
     let divesCount: Int
-    let maxDepth: Double
+    /// The day's deepest dive is shallower than 20 m (65.6 ft).
+    let isShallow: Bool
     let isSelected: Bool
     let isToday: Bool
 
     private var fillColor: Color {
         if divesCount == 0 { return Color.clear }
-        if divesCount == 1 && maxDepth < 20 { return Color.blue.opacity(0.35) }
+        if divesCount == 1 && isShallow { return Color.blue.opacity(0.35) }
         if divesCount == 1 { return Color.blue.opacity(0.6) }
         if divesCount == 2 { return Color.cyan.opacity(0.7) }
         return Color.cyan

@@ -32,21 +32,22 @@ struct DiveTrip: Identifiable {
         guard !dives.isEmpty else { return 0 }
         return dives.map(\.displayMaxDepth).reduce(0, +) / Double(dives.count)
     }
-    var averageRMV: Double {
-        var sum = 0.0
-        var count = 0
-        for dive in dives {
-            let rmv = dive.calculatedRMV
-            if rmv > 0 { sum += rmv; count += 1 }
-        }
-        return count > 0 ? sum / Double(count) : 0
+    /// The trip's average RMV (0 when no dive has one) and whether any RMV in it was not
+    /// natively available in bar and litres (the value then carries the " *" footnote marker,
+    /// as on the Statistics dashboard). One pass: `calculatedRMV` decodes each dive's profile
+    /// and tanks, so read this once per render.
+    var rmvSummary: (average: Double, isEstimated: Bool) {
+        // The shared rule (`rmvAggregate`, also the Statistics dashboard's). It skips dives
+        // deleted on another device; the trip's other figures still read every dive, as before.
+        let rmv = rmvAggregate(dives)
+        return (rmv.average, rmv.isEstimated)
     }
     var formattedTotalTime: String { formattedMinutes(totalMinutes) }
     var durationDays: Int {
         Calendar.current.dateComponents([.day], from: startDate, to: endDate).day.map { $0 + 1 } ?? 1
     }
     var uniqueSites: Int {
-        Set(dives.map { $0.siteName.lowercased() }).count
+        uniqueSiteCount(dives.map(\.siteName))
     }
     /// Where the cover comes from: the earliest photo record (with a thumbnail) of the first
     /// dive that has one, else that dive's first legacy photo. Found from the links only — no
@@ -92,8 +93,8 @@ struct DiveTrip: Identifiable {
 // MARK: - Trip Builder
 
 struct TripBuilder {
-    /// Groups dives into trips: dives within 7 days of each other at the same location
-    /// are considered one trip.
+    /// Groups dives into trips by date only: a dive within 7 days of the previous one joins
+    /// its trip, wherever it took place. Location is used only to name the trip.
     static func buildTrips(from dives: [Dive]) -> [DiveTrip] {
         guard !dives.isEmpty else { return [] }
 
@@ -628,16 +629,30 @@ struct TripDetailSheet: View {
     }
 
     private var heroSection: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            TripHeroStat(value: Double(trip.totalDives).localizedString(decimals: 0), label: "Dives", icon: "bubbles.and.sparkles.fill", color: .cyan)
-            TripHeroStat(value: trip.formattedTotalTime, label: "Underwater", icon: "timer", color: .green)
-            TripHeroStat(value: Double(trip.durationDays).localizedString(decimals: 0) + "d", label: "Trip Duration", icon: "calendar", color: .orange)
-            TripHeroStat(value: trip.averageMaxDepth.localizedString(decimals: 1) + " " + prefs.depthUnit.symbol, label: "Avg. Depth", icon: "arrow.down.circle", color: .blue)
-            TripHeroStat(value: Double(trip.uniqueSites).localizedString(decimals: 0), label: "Sites", icon: "mappin.and.ellipse", color: .purple)
-            if trip.averageRMV > 0 {
-                TripHeroStat(value: trip.averageRMV.localizedString(decimals: 1) + " L/m", label: "Avg. RMV", icon: "wind", color: .teal)
-            } else {
-                TripHeroStat(value: trip.averageRating.localizedString(decimals: 1) + "★", label: "Avg. Rating", icon: "star.fill", color: .yellow)
+        // Once per render (not memoized): RMV depends on tank pressures, volumes, usage times
+        // and the profile, which no store signal reports, so a cache could show a stale value
+        // after a tank edit. Each dive caches its decoded profile and tanks, so this is cheap.
+        let rmv = trip.rmvSummary
+        let averageRMV = rmv.average
+        // `isEstimated` is only set by a dive with an RMV, so it implies averageRMV > 0.
+        let showsEstimatedRMV = rmv.isEstimated
+        return VStack(spacing: 12) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                TripHeroStat(value: Double(trip.totalDives).localizedString(decimals: 0), label: "Dives", icon: "bubbles.and.sparkles.fill", color: .cyan)
+                TripHeroStat(value: trip.formattedTotalTime, label: "Underwater", icon: "timer", color: .green)
+                TripHeroStat(value: Double(trip.durationDays).localizedString(decimals: 0) + "d", label: "Trip Duration", icon: "calendar", color: .orange)
+                TripHeroStat(value: trip.averageMaxDepth.localizedString(decimals: 1) + " " + prefs.depthUnit.symbol, label: "Avg. Depth", icon: "arrow.down.circle", color: .blue)
+                TripHeroStat(value: Double(trip.uniqueSites).localizedString(decimals: 0), label: "Sites", icon: "mappin.and.ellipse", color: .purple)
+                if averageRMV > 0 {
+                    TripHeroStat(value: formatRMV(averageRMV, pressureUnit: prefs.pressureUnit, isEstimated: showsEstimatedRMV), label: "Avg. RMV", icon: "wind", color: .teal)
+                } else {
+                    // No rated dive: a dash, not a misleading "0.0★".
+                    TripHeroStat(value: trip.averageRating > 0 ? trip.averageRating.localizedString(decimals: 1) + "★" : "—", label: "Avg. Rating", icon: "star.fill", color: .yellow)
+                }
+            }
+            // Explains the " *" on Avg. RMV, as the Gas tab's footnote does for one dive.
+            if showsEstimatedRMV {
+                EstimatedRMVFootnote()
             }
         }
         .fillsAvailableHeightOnMac()
@@ -713,7 +728,11 @@ struct TripHeroStat: View {
     var body: some View {
         VStack(spacing: 6) {
             Image(systemName: icon).font(.title2).foregroundStyle(color).accessibilityHidden(true)
+            // One line, shrinking to fit: a value like "0,453 cu ft/min *" is wider than the
+            // third of the grid it gets on iPhone.
             Text(value).font(.title3.weight(.black)).monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
             Text(label).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

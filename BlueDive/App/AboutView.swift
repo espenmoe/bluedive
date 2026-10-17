@@ -55,7 +55,7 @@ struct AboutView: View {
                             }
                         }
 
-                        Text("A feature-rich dive log for iPadOS & iOS")
+                        Text("A feature-rich dive log for iPhone, iPad and Mac")
                             .font(.subheadline)
                             .fontWeight(.medium)
                             .foregroundStyle(.cyan)

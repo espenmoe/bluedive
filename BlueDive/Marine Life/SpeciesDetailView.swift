@@ -289,9 +289,9 @@ struct SpeciesDetailView: View {
         return VStack(spacing: 16) {
             HStack(spacing: 12) {
                 StatisticsHeroCard(
-                    value: Double(metrics.sightings).localizedString(decimals: 0),
-                    label: "Sightings",
-                    icon: "eye.fill",
+                    value: Double(metrics.diveCount).localizedString(decimals: 0),
+                    label: "Dives",
+                    icon: "figure.open.water.swim",
                     color: .cyan
                 )
                 StatisticsHeroCard(
