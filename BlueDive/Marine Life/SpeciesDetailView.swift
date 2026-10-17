@@ -222,6 +222,20 @@ struct SpeciesDetailView: View {
 
     // MARK: Header
 
+    /// The species' Other Names shown under its name, in the order they were saved: names
+    /// matching the displayed or scientific name, case-only duplicates and empty names are
+    /// left out.
+    private var headerOtherNames: [String] {
+        var seen: Set<String> = [
+            SpeciesCatalog.key(species.displayName),
+            SpeciesCatalog.key(species.scientificName ?? "")
+        ]
+        return (species.altNames ?? []).filter { name in
+            let key = SpeciesCatalog.key(name)
+            return !key.isEmpty && seen.insert(key).inserted
+        }
+    }
+
     private var header: some View {
         VStack(spacing: 12) {
             SpeciesImageView(species: species, size: 120)
@@ -229,6 +243,14 @@ struct SpeciesDetailView: View {
                 Text(verbatim: species.displayName)
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.center)
+                let otherNames = headerOtherNames
+                if !otherNames.isEmpty {
+                    Text(verbatim: "(\(otherNames.joined(separator: ", ")))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let scientific = species.scientificName, !scientific.isEmpty {
                     Text(verbatim: scientific)
                         .font(.subheadline)
