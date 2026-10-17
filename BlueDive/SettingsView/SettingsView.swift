@@ -475,6 +475,12 @@ class UserPreferences {
     var useAlternativeINaturalistPhoto: Bool {
         didSet { UserDefaults.standard.set(useAlternativeINaturalistPhoto, forKey: "useAlternativeINaturalistPhoto") }
     }
+    /// When true, the dive list search also matches dive notes, through a query on the store
+    /// (DiveStore's Notes Search section). Off by default: few people need it, and with it off the search
+    /// costs nothing more. No App Group write: the widget does not search.
+    var searchDiveNotes: Bool {
+        didSet { UserDefaults.standard.set(searchDiveNotes, forKey: "searchDiveNotes") }
+    }
     #if os(macOS)
     /// When true, the main dive list shows the profile chart of the selected dive above the
     /// list; a click selects a dive and a double-click (or Return) opens it. When false, the
@@ -497,6 +503,7 @@ class UserPreferences {
         // OFF default — no registerDefaults entry needed.
         self.hideClearedDecoStops = UserDefaults.standard.bool(forKey: "hideClearedDecoStops")
         self.showSamplesTab = UserDefaults.standard.bool(forKey: "showSamplesTab")
+        self.searchDiveNotes = UserDefaults.standard.bool(forKey: "searchDiveNotes")
         // On by default: an absent key reads as true.
         self.showPhotosOnProfile = UserDefaults.standard.object(forKey: "showPhotosOnProfile") as? Bool ?? true
         self.fetchWeatherOnline = UserDefaults.standard.bool(forKey: "fetchWeatherOnline")
@@ -525,6 +532,7 @@ class UserPreferences {
         languageMode    = .system
         hideClearedDecoStops = false
         showSamplesTab = false
+        searchDiveNotes = false
         showPhotosOnProfile = true
         fetchWeatherOnline = false
         fetchTaxonomyOnline = false

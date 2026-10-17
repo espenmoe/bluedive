@@ -734,6 +734,9 @@ struct EditMenuStatsView: View {
 
         dive.rating       = workingRating
         let trimmedNotes  = workingNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only matters to the dive list's notes search (a store query): with it off, notes are
+        // left to autosave as before.
+        let notesNeedSave = dive.notes != trimmedNotes && UserPreferences.shared.searchDiveNotes
         dive.notes        = trimmedNotes
         dive.tags         = workingTags.isEmpty ? nil : workingTags
         dive.diveNumber   = Int(workingDiveNumber.trimmingCharacters(in: .whitespaces))
@@ -768,11 +771,13 @@ struct EditMenuStatsView: View {
                 timestampDidChange = true
             }
         }
-        if timestampDidChange || diverNameDidChange {
+        if timestampDidChange || diverNameDidChange || notesNeedSave {
             // Flush changes to the persistent store so the background context sees
-            // the updated values when it fetches all dives for recalculation.
+            // the updated values when it fetches all dives for recalculation, and the dive
+            // list's notes search (a store query) sees new notes at once rather than after autosave.
             try? modelContext.save()
-            if autoSequenceEnabled {
+            if notesNeedSave { store.notesMayHaveChanged() }
+            if (timestampDidChange || diverNameDidChange) && autoSequenceEnabled {
                 store.recalcSequencesInBackground(
                     container: modelContext.container,
                     newDiverName: dive.diverName,

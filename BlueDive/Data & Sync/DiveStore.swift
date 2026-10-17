@@ -179,8 +179,9 @@ final class DiveStore {
     private var cachedSelectedDiver: String = ""
     /// The trimmed searchText value actually applied to cachedFilteredSummaries as of the
     /// last rebuildFilteredDives call — lags live searchText by up to scheduleSearchRebuild's
-    /// 150ms debounce. Sibling of cachedSelectedDiver above: both are "last value actually
-    /// applied," synced together in rebuildFilteredDives. Views deciding what empty-state to
+    /// 150ms debounce, plus the notes read while notes are searched (see Notes Search). Sibling
+    /// of cachedSelectedDiver above: both are "last value actually applied," synced together in
+    /// rebuildFilteredDives. Views deciding what empty-state to
     /// show must check this, not searchText directly, or they can render a state describing
     /// search results that haven't been computed yet (e.g. a diver-specific empty state while
     /// a stale search is still applied).
@@ -291,6 +292,18 @@ final class DiveStore {
     private var rebuildTask: Task<Void, Never>?
     /// See scheduleAggregation(updateFishCaches:).
     @ObservationIgnored private var aggregationIncludesFishCaches = false
+
+    // Notes search (Settings → Dive Profile → Search dive notes; see Notes Search below).
+    /// The search text `notesMatchPIDs` answers; "" when none.
+    @ObservationIgnored private var notesMatchQuery = ""
+    /// Dives whose notes contain `notesMatchQuery`, as saved in the store.
+    @ObservationIgnored private var notesMatchPIDs: Set<PersistentIdentifier> = []
+    /// A debounced search pass is scheduled and has not started yet: it reads the matches anyway,
+    /// so a notes trigger leaves it alone instead of restarting its debounce.
+    @ObservationIgnored private var searchPassPending = false
+    /// One read at a time; a pass arriving meanwhile asks for one more read when it ends.
+    @ObservationIgnored private var notesReadInFlight = false
+    @ObservationIgnored private var notesRereadWanted = false
 
     // MARK: - Computed Properties
 
@@ -477,12 +490,31 @@ final class DiveStore {
 
     // Debounce-aware search rebuild (150ms quiet period).
     func scheduleSearchRebuild(dives: [Dive], selectedDiver: String) {
+        scheduleSearchPass(dives: dives, selectedDiver: selectedDiver)
+    }
+
+    /// `dives` nil (a notes trigger): the store's live list when the pass fires, so a dive
+    /// deleted meanwhile is never read.
+    private func scheduleSearchPass(dives: [Dive]?, selectedDiver: String) {
         searchDebounceTask?.cancel()
+        searchPassPending = true
         searchDebounceTask = Task { @MainActor [weak self] in
             guard let self else { return }
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
-            self.rebuildFilteredDives(dives: dives, selectedDiver: selectedDiver)
+            self.searchPassPending = false
+            let notesQuery = self.wantedNotesQuery
+            guard !notesQuery.isEmpty, let container = self.notesContainer else {
+                self.rebuildFilteredDives(dives: dives ?? self.liveDives, selectedDiver: selectedDiver)
+                return
+            }
+            // Notes search: only this pass reads the matches (see Notes Search). One read at a
+            // time: a pass arriving during a read asks for one more when it ends.
+            guard !self.notesReadInFlight else {
+                self.notesRereadWanted = true
+                return
+            }
+            await self.readNotesMatchesAndFilter(query: notesQuery, container: container)
         }
     }
 
@@ -551,6 +583,9 @@ final class DiveStore {
 
         diveByID = Dictionary(dives.map { ($0.id, $0) }, uniquingKeysWith: { f, _ in f })
         diveIDByPID = Dictionary(dives.map { ($0.persistentModelID, $0.id) }, uniquingKeysWith: { f, _ in f })
+
+        // Dives added or removed: an active notes search reads its matches again.
+        if membershipChanged { scheduleNotesSearch() }
 
         // List update happens after summaries are built so rebuildFilteredDives can derive
         // cachedFilteredSummaries correctly. UI is still responsive on the same runloop turn.
@@ -812,6 +847,11 @@ final class DiveStore {
         // with the wrong diver scope. appliedSearchText is synced here for the same reason.
         cachedSelectedDiver = selectedDiver
         appliedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Notes not searched: drop the matches.
+        if wantedNotesQuery.isEmpty && !notesMatchQuery.isEmpty {
+            notesMatchQuery = ""
+            notesMatchPIDs = []
+        }
         // Does NOT rebuild diveIndexLookup (positional dive numbers). That is intentional:
         // only timestamp edits reorder the @Query array, and those always commit(_:affects: .list)
         // → rebuildDerivedDiveState(), which rebuilds the lookup.
@@ -964,7 +1004,8 @@ final class DiveStore {
     //   timestamp, diverName, current sort field      → one full rebuild (commitListRebuild)
     //   seenFish, photosData, photos                  → badge refresh for those dives
     //   other fields shown in rows (DiveSummary)      → summary patch for those dives
-    //   anything else (notes, averageDepth, profile…) → nothing
+    //   notes, while a notes search is active          → the debounced search pass runs again
+    //   anything else (averageDepth, profile…)        → nothing
     //
     // Dive inserts and deletes are left to the @Query membership path. A fish added or removed
     // on another device always comes with a seenFish update on its dive; a fish renamed there
@@ -1016,6 +1057,9 @@ final class DiveStore {
         /// Dives inserted by this app's own saves (permanent identifiers), used to remap dives
         /// recorded under a temporary identifier before they were first saved.
         var localInsertedPIDs: Set<PersistentIdentifier> = []
+        /// A dive's notes changed while a notes search is active (acted on at classification; not
+        /// part of isEmpty, so a notes-only batch costs no merge wait).
+        var notesChanged = false
         var updatedPIDs: Set<PersistentIdentifier> { listPIDs.union(rowPIDs).union(badgePIDs) }
         var isEmpty: Bool {
             updatedPIDs.isEmpty && deletedPIDs.isEmpty && renamedSightPIDs.isEmpty && sightDetailPIDs.isEmpty
@@ -1124,6 +1168,9 @@ final class DiveStore {
         }
 
         var batch = classifyRemoteHistory(transactions)
+        // Notes edited on another device: the store holds them already (no merge wait needed),
+        // and the pass filters only the live dives when it fires.
+        if batch.notesChanged { scheduleNotesSearch() }
         // nil when nothing new was fetched; noted pages or a deferral may still need applying
         // (e.g. a backlog that was an exact multiple of the page size).
         let newestToken = batch.newestToken
@@ -1454,6 +1501,9 @@ final class DiveStore {
         // A photo record added or removed on another device comes with a `photos` update on its dive.
         let photoKeys: Set<PartialKeyPath<Dive>> = [\Dive.photosData, \Dive.photos]
         let badgeKeys: Set<PartialKeyPath<Dive>> = photoKeys.union([\Dive.seenFish])
+        // Without an active notes search a notes edit changes nothing shown: a later search
+        // reads the store afresh.
+        let watchesNotes = !wantedNotesQuery.isEmpty
 
         for transaction in transactions {
             if let author = transaction.author, author.hasPrefix(Self.appHistoryAuthorPrefix) {
@@ -1497,6 +1547,7 @@ final class DiveStore {
                         batch.rowPIDs.insert(pid)
                     }
                     if !keys.isDisjoint(with: badgeKeys) { batch.badgePIDs.insert(pid) }
+                    if watchesNotes && keys.contains(\Dive.notes) { batch.notesChanged = true }
                     if keys.contains(\Dive.seenFish) { batch.seenFishChanged = true }
                     if !keys.isDisjoint(with: photoKeys) { batch.photoPIDs.insert(pid) }
                 case .delete(let delete):
@@ -1710,10 +1761,134 @@ final class DiveStore {
     private static let remoteHistoryLogger = Logger(subsystem: "com.bluedive.app", category: "RemoteHistory")
     #endif
 
+    // MARK: - Notes Search
+
+    // The dive list search matches notes when Settings → Dive Profile → Search dive notes is on.
+    // SQLite does the matching (readNotesMatches: no Dive object is built; measured 2–10 ms for
+    // 2 900 dives) and only the matching identifiers are kept, for the current text. Only the
+    // debounced search pass (scheduleSearchRebuild) reads them (readNotesMatchesAndFilter), then
+    // filters once, skipped when nothing changed; everything that may change the store's notes
+    // schedules that pass again (scheduleNotesSearch): a save inserting dives or a saved notes
+    // edit (notesMayHaveChanged), a change in dive membership, a remote notes edit, the setting.
+    // A trigger never restarts a pending pass (it reads anyway), so saves cannot postpone what
+    // the user typed; a read once started always completes, one at a time (a trigger or pass
+    // arriving meanwhile asks for one more). The Dive Information sheet saves when the notes
+    // changed (setting on), so its edit reaches the store at once. A single-consumer reader:
+    // nothing to share by key, so it does not go through a shared-read helper like sightingValues.
+
+    /// The text whose notes matches the search uses: the trimmed search text while the setting is
+    /// on, "" otherwise. The one place that decides whether notes are searched.
+    private var wantedNotesQuery: String {
+        UserPreferences.shared.searchDiveNotes ? searchText.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+    }
+
+    private var notesContainer: ModelContainer? {
+        dives.lazy.compactMap(\.modelContext).first?.container
+    }
+
+    /// The listed dives that may be read: not deleted (here or merged from another device) and
+    /// not pending a remote deletion. For re-filters run outside the @Query delivery.
+    private var liveDives: [Dive] {
+        dives.filter {
+            !$0.isDeleted && $0.modelContext != nil && !pendingRemoteDeletedPIDs.contains($0.persistentModelID)
+        }
+    }
+
+    /// Schedules the debounced search pass, which reads the notes matches again, while a notes
+    /// search is active.
+    private func scheduleNotesSearch() {
+        guard !wantedNotesQuery.isEmpty else { return }
+        // A pending pass reads anyway: never restart its debounce (a steady stream of saves
+        // would otherwise postpone what the user typed). A running read gets one more after it.
+        if searchPassPending { return }
+        if notesReadInFlight {
+            notesRereadWanted = true
+            return
+        }
+        // The notes path filters the store's current list and diver after its read (liveDives,
+        // cachedSelectedDiver); without notes (the setting turned off meanwhile) it too reads the
+        // live list when it fires.
+        scheduleSearchPass(dives: nil, selectedDiver: cachedSelectedDiver)
+    }
+
+    /// The store may hold new notes: dives inserted by a save (DiveDataFeeder, while the
+    /// setting is on) or a notes edit just saved (the Dive Information sheet).
+    func notesMayHaveChanged() {
+        scheduleNotesSearch()
+    }
+
+    /// Settings → Dive Profile → Search dive notes changed. Called by DiveDataFeeder.
+    func searchDiveNotesChanged() {
+        if wantedNotesQuery.isEmpty {
+            // Off: a pending pass would filter a list captured earlier; filter without notes now
+            // instead (no read needed), the live text included even if never applied yet. A read
+            // still running is dropped when it ends (its text is no longer wanted).
+            searchDebounceTask?.cancel()
+            searchPassPending = false
+            let hasText = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard hasText || !appliedSearchText.isEmpty else { return }
+            rebuildFilteredDives(dives: liveDives, selectedDiver: cachedSelectedDiver)
+        } else {
+            // On: read the matches, then filter once.
+            scheduleNotesSearch()
+        }
+    }
+
+    /// Reads the matches for `query` and filters with them if anything changed. Not cancellable
+    /// once started (a cancelled pass would otherwise drop a finished read and, under a steady
+    /// stream of saves, never filter): only passes still in their debounce are cancelled.
+    private func readNotesMatchesAndFilter(query: String, container: ModelContainer) async {
+        notesReadInFlight = true
+        let matches = await Task.detached(priority: .userInitiated) {
+            DiveStore.readNotesMatches(container: container, query: query)
+        }.value
+        notesReadInFlight = false
+        defer {
+            if notesRereadWanted {
+                notesRereadWanted = false
+                scheduleNotesSearch()
+            }
+        }
+        // The text moved on (or notes are no longer searched): its own pass reads it.
+        guard query == wantedNotesQuery else { return }
+        let changed: Bool
+        if let matches {
+            changed = query != notesMatchQuery || matches != notesMatchPIDs
+            notesMatchQuery = query
+            notesMatchPIDs = matches
+        } else if query != notesMatchQuery {
+            // A failed read of a new text: no notes matches for it until the next read. A failed
+            // re-read of the same text keeps the previous matches.
+            changed = true
+            notesMatchQuery = query
+            notesMatchPIDs = []
+        } else {
+            changed = false
+        }
+        // Nothing new to show: the matches and the applied text are those already filtered.
+        guard changed || appliedSearchText != query else { return }
+        // The store's current list and diver (a rebuild or a diver change during the read is
+        // kept), without dives deleted on another device.
+        rebuildFilteredDives(dives: liveDives, selectedDiver: cachedSelectedDiver)
+    }
+
+    /// The dives whose notes contain `query`, ignoring case and accents, read through a fresh
+    /// context; nil if the fetch failed.
+    private nonisolated static func readNotesMatches(container: ModelContainer, query: String) -> Set<PersistentIdentifier>? {
+        let context = ModelContext(container)
+        context.author = "BlueDive.notesSearch"
+        let descriptor = FetchDescriptor<Dive>(predicate: #Predicate { $0.notes.localizedStandardContains(query) })
+        return (try? context.fetchIdentifiers(descriptor)).map(Set.init)
+    }
+
     // MARK: - Private Helpers
 
     private func computeFilteredAndSortedDives(dives: [Dive], selectedDiver: String) -> [Dive] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Notes matches apply only to the text they answer; another text waits for its
+        // debounced pass.
+        let notesQuery = wantedNotesQuery
+        let useNotesMatches = !notesQuery.isEmpty && notesQuery == notesMatchQuery
         var result = DiverFilter.apply(selectedDiver, to: dives).filter { dive in
             // Text search
             if !query.isEmpty {
@@ -1731,6 +1906,7 @@ final class DiveStore {
                     || diveTypesWords.contains(where: { $0.contains(query) })
                     || tagWords.contains(where: { $0.contains(query) })
                     || (dive.diveNumber.map { String($0) }?.contains(query) ?? false)
+                    || (useNotesMatches && notesMatchPIDs.contains(dive.persistentModelID))
                 if !matches { return false }
             }
             // Year filter

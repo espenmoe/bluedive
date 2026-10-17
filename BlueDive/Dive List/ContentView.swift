@@ -361,7 +361,7 @@ struct ContentView: View {
             }
 
             .sideStripNavigationBar()
-            .mainListSearchable(text: $store.searchText, prompt: Text("Site, location, buddy, country, type, tag, dive #…"))
+            .mainListSearchable(text: $store.searchText, prompt: searchPrompt)
             .animation(.easeInOut(duration: 0.3), value: store.searchText)
             .toolbar { toolbarContent }
             #if os(iOS)
@@ -681,6 +681,15 @@ struct ContentView: View {
         }
     }
 
+    /// Lists the fields the search matches; notes only when Settings → Dive Profile → Search
+    /// dive notes is on.
+    private var searchPrompt: Text {
+        if prefs.searchDiveNotes {
+            Text("Site, location, buddy, country, type, tag, dive #, notes…", comment: "Dive list search field prompt when dive notes are searched too.")
+        } else {
+            Text("Site, location, buddy, country, type, tag, dive #…")
+        }
+    }
 
     // Extracted into a separate property to avoid Swift type-checker timeouts
     // caused by excessively long modifier chains in body.

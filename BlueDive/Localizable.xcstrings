@@ -36343,6 +36343,28 @@
         }
       }
     },
+    "Search dive notes" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tauchgangsnotizen durchsuchen"
+          }
+        },
+        "fr-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher dans les notes"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duiknotities doorzoeken"
+          }
+        }
+      }
+    },
     "Search dives…" : {
       "localizations" : {
         "de" : {
@@ -38868,6 +38890,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Naam van de locatie"
+          }
+        }
+      }
+    },
+    "Site, location, buddy, country, type, tag, dive #, notes…" : {
+      "comment" : "Dive list search field prompt when dive notes are searched too.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tauchplatz, Ort, Tauchpartner, Land, Typ, Tag, Tauchgang #, Notizen…"
+          }
+        },
+        "fr-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Site, lieu, coéquipier, pays, type, étiquette, plongée #, notes…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duikstek, locatie, buddy, land, type, tag, duik #, notities…"
           }
         }
       }
@@ -47302,6 +47347,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Als deze optie is ingeschakeld, tonen de duikgegevens een tabblad Meetpunten met de ruwe gegevens die je duikcomputer bij elk meetpunt heeft vastgelegd. Bij lange duiken kan het even duren voordat alles is weergegeven."
+          }
+        }
+      }
+    },
+    "When on, the dive list search also looks in each dive's notes, ignoring capitals and accents. With a large logbook, search results can take a moment longer to appear." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn aktiviert, durchsucht die Suche in der Tauchgangsliste auch die Notizen jedes Tauchgangs, ohne Groß- und Kleinschreibung oder Akzente zu beachten. Bei einem umfangreichen Logbuch kann es einen Moment länger dauern, bis die Suchergebnisse erscheinen."
+          }
+        },
+        "fr-CA" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lorsque cette option est activée, la recherche dans la liste des plongées porte aussi sur les notes de chaque plongée, sans tenir compte des majuscules ni des accents. Avec un carnet de plongée volumineux, les résultats de recherche peuvent prendre un moment de plus à s’afficher."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als deze optie is ingeschakeld, zoekt de zoekfunctie in de duiklijst ook in de notities van elke duik, zonder rekening te houden met hoofdletters en accenten. Bij een groot logboek kan het iets langer duren voordat de zoekresultaten verschijnen."
           }
         }
       }

@@ -106,6 +106,37 @@ struct DiveProfileSettingsView: View {
                 )
                 .padding(.horizontal)
 
+                VStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $prefs.searchDiveNotes) {
+                            Label {
+                                Text("Search dive notes")
+                            } icon: {
+                                Image(systemName: "note.text")
+                                    .foregroundStyle(.yellow)
+                            }
+                        }
+                        .fullWidthSwitch()
+                    }
+                    .padding()
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.03)))
+
+                    Text("When on, the dive list search also looks in each dive's notes, ignoring capitals and accents. With a large logbook, search results can take a moment longer to appear.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.primary.opacity(0.03))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                        )
+                )
+                .padding(.horizontal)
+
                 #if os(macOS)
                 // The dive list's profile preview exists only on macOS (also toggled from
                 // View → Show Profile Preview).
