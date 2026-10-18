@@ -118,7 +118,7 @@ struct OnlineServicesSettingsView: View {
                     }
                 }
                 .fullWidthSwitch()
-                Text("When a species is linked, iNaturalist's common name becomes its name and the name it had is kept in Other Names. When off, species keep the names they were given.")
+                Text("When a species is linked or looked up again, iNaturalist's common name becomes its name and the name it had is kept in Other Names — unless iNaturalist's name is already one of its other names. When off, species keep the names they were given.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

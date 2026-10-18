@@ -471,7 +471,8 @@ enum INaturalistUpdater {
     /// Stores the taxon on the species. iNaturalist data goes into its own fields; the
     /// user's fields are only filled when empty, except the common name: a placeholder (only
     /// the scientific name) is replaced by the iNaturalist common name, and any other name
-    /// too when "Use iNaturalist common names" is on (the name it had becomes another name). A name
+    /// too when "Use iNaturalist common names" is on (the name it had becomes another name) —
+    /// except, on a species already linked, when iNaturalist's name is one of its other names. A name
     /// another species already has is not given (no two species with one name). The taxon's
     /// photo (`chosenPhoto`) is downloaded only when the species has no image and the photo's
     /// licence allows it, and its credit is kept with it. Returns whether it was saved.
@@ -547,6 +548,11 @@ enum INaturalistUpdater {
         let commonIsPlaceholder = commonKey == SpeciesCatalog.key(taxon.name) || commonFromPreviousTaxon
             || commonIsFormerName
         let usesINaturalistNames = allowNameSwap && UserPreferences.shared.useINaturalistCommonNames
+        // iNaturalist's name is one of the other names: on a species already linked, the user
+        // does not want it as the name (renaming a species back after a swap keeps it there).
+        let commonNameIsOtherName = commonName.map { name in
+            (species.altNames ?? []).contains { SpeciesCatalog.key($0) == SpeciesCatalog.key(name) }
+        } ?? false
         if commonIsPlaceholder, commonFromPreviousTaxon || usesINaturalistNames {
             if let commonName, others.species(named: commonName) == nil {
                 // The former name stays another name, so the keywords and sightings written
@@ -561,12 +567,13 @@ enum INaturalistUpdater {
             } else if commonFromPreviousTaxon {
                 species.commonName = taxon.name
             }
-        } else if !commonIsPlaceholder, usesINaturalistNames, previousTaxonID == nil,
+        } else if !commonIsPlaceholder, usesINaturalistNames, previousTaxonID == nil || !commonNameIsOtherName,
                   let commonName, !commonKey.isEmpty, SpeciesCatalog.key(commonName) != commonKey,
                   !names.values.contains(species.commonName),
                   others.species(named: commonName) == nil {
-            // "Use iNaturalist common names", on a first link only (a species already linked
-            // keeps its name): iNaturalist's name (in the names language, else English) becomes
+            // "Use iNaturalist common names", on a first link or a lookup of a species already
+            // linked (the species page) — unless, once linked, iNaturalist's name is one of its
+            // other names: iNaturalist's name (in the names language, else English) becomes
             // the name, and the name the species had — typed or read from a keyword — is kept as
             // another name, so the sightings and keywords written with it are still recognised.
             // Kept as is when it is exactly one of iNaturalist's names (`displayName` shows it in
