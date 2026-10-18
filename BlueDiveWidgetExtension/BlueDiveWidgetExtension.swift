@@ -41,6 +41,7 @@ struct AddDiveProvider: TimelineProvider {
         case "de":    return Locale(identifier: "de")
         case "nl":    return Locale(identifier: "nl")
         case "nb":    return Locale(identifier: "nb")
+        case "es":    return Locale(identifier: "es")
         default:      return .autoupdatingCurrent
         }
     }

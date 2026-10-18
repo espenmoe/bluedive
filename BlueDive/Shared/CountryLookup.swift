@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Centralised country-name-to-flag and accent-colour lookup.
-/// Supports English, French Canadian, German, Dutch, and Norwegian Bokmål country names with accent-insensitive matching.
+/// Supports English, French Canadian, German, Dutch, Norwegian Bokmål, and Spanish country names with accent-insensitive matching.
 enum CountryLookup {
 
     // MARK: - Public API
@@ -407,6 +407,75 @@ enum CountryLookup {
         "vatikanstaten": "va", "vest-sahara": "eh",
         // Ø
         "øst-timor": "tl", "østerrike": "at",
+        // Spanish (es) country names
+        // A
+        "afganistán": "af", "alemania": "de", "antigua y barbuda": "ag",
+        "arabia saudí": "sa", "arabia saudita": "sa", "argelia": "dz",
+        "azerbaiyán": "az",
+        // B
+        "bangladés": "bd", "baréin": "bh", "bélgica": "be",
+        "belice": "bz", "bermudas": "bm", "bielorrusia": "by",
+        "birmania": "mm", "bosnia y herzegovina": "ba", "botsuana": "bw",
+        "bután": "bt",
+        // C
+        "camboya": "kh", "camerún": "cm", "catar": "qa",
+        "chequia": "cz", "chipre": "cy", "ciudad del vaticano": "va",
+        "comoras": "km", "corea del norte": "kp", "corea del sur": "kr",
+        "costa de marfil": "ci", "croacia": "hr", "curazao": "cw",
+        // D
+        "dinamarca": "dk",
+        // E
+        "ee. uu.": "us", "eeuu": "us", "egipto": "eg",
+        "emiratos árabes unidos": "ae", "eslovaquia": "sk", "eslovenia": "si",
+        "españa": "es", "estados unidos": "us", "estados unidos de américa": "us",
+        // F
+        "filipinas": "ph", "finlandia": "fi", "fiyi": "fj",
+        "francia": "fr",
+        // G
+        "gran bretaña": "gb", "granada": "gd", "grecia": "gr",
+        "groenlandia": "gl", "guadalupe": "gp", "guayana francesa": "gf",
+        "guinea ecuatorial": "gq", "guinea-bisáu": "gw",
+        // H
+        "holanda": "nl", "hungría": "hu",
+        // I
+        "irlanda": "ie", "islandia": "is", "islas caimán": "ky",
+        "islas cook": "ck", "islas feroe": "fo", "islas marshall": "mh",
+        "islas salomón": "sb", "islas turcas y caicos": "tc", "islas vírgenes británicas": "vg",
+        "islas vírgenes de los estados unidos": "vi", "islas vírgenes estadounidenses": "vi",
+        // J
+        "jordania": "jo",
+        // K
+        "kazajistán": "kz", "kirguistán": "kg",
+        // L
+        "letonia": "lv", "líbano": "lb", "libia": "ly",
+        "lituania": "lt", "luxemburgo": "lu",
+        // M
+        "macedonia del norte": "mk", "malasia": "my", "malaui": "mw",
+        "maldivas": "mv", "marruecos": "ma", "martinica": "mq",
+        "mauricio": "mu", "moldavia": "md",
+        // N
+        "noruega": "no", "nueva caledonia": "nc", "nueva zelanda": "nz",
+        // P
+        "países bajos": "nl", "papúa nueva guinea": "pg", "polinesia francesa": "pf",
+        "polonia": "pl",
+        // R
+        "reino unido": "gb", "república centroafricana": "cf", "república checa": "cz",
+        "república democrática del congo": "cd", "república dominicana": "do", "rumania": "ro",
+        "rusia": "ru",
+        // S
+        "samoa americana": "as", "san cristóbal y nieves": "kn", "san vicente y las granadinas": "vc",
+        "santa lucía": "lc", "sierra leona": "sl", "siria": "sy",
+        "sudáfrica": "za", "sudán del sur": "ss", "suecia": "se",
+        "suiza": "ch",
+        // T
+        "tailandia": "th", "tayikistán": "tj", "trinidad y tobago": "tt",
+        "túnez": "tn", "turquía": "tr",
+        // U
+        "ucrania": "ua",
+        // Y
+        "yibuti": "dj",
+        // Z
+        "zimbabue": "zw",
     ]
 
     // MARK: - ISO code → accent colour

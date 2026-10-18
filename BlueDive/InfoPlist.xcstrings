@@ -15,6 +15,12 @@
             "value" : "BlueDive Dive Log"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bitácora de buceo BlueDive"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -75,6 +81,12 @@
             "value" : "Garmin FIT Activity"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Actividad Garmin FIT"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -108,6 +120,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BlueDive uses Bluetooth to connect to your dive computer."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "BlueDive usa Bluetooth para conectarse a tu computadora de buceo."
           }
         },
         "fr-CA" : {
@@ -145,6 +163,12 @@
             "value" : "BlueDive uses your location to show your position on the dive map."
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "BlueDive usa tu ubicación para mostrar tu posición en el mapa de inmersiones."
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -171,6 +195,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Subsurface-Tauchprotokoll"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bitácora de buceo Subsurface"
           }
         },
         "fr-CA" : {

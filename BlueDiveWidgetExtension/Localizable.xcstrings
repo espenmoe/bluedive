@@ -15,6 +15,12 @@
             "value" : "%@ h"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ h"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -41,6 +47,12 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
+            "value" : "%@ h %@ min"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
             "value" : "%@ h %@ min"
           }
         },
@@ -73,6 +85,12 @@
             "value" : "%@ min"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ min"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -100,6 +118,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Alle Taucher"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos los buceadores"
           }
         },
         "fr-CA" : {
@@ -139,6 +163,12 @@
             "value" : "Bluetooth-Tauchgang"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inmersión Bluetooth"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -166,6 +196,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wähle aus, wessen Statistiken angezeigt werden sollen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige de qué buceador mostrar las estadísticas."
           }
         },
         "fr-CA" : {
@@ -197,6 +233,12 @@
             "value" : "Tage seit"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Días desde"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -224,6 +266,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tiefste"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Más profunda"
           }
         },
         "fr-CA" : {
@@ -256,6 +304,12 @@
             "value" : "Anzahl Tauchgänge"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Número de inmersiones"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -285,6 +339,12 @@
             "value" : "Taucher"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Buceador"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -312,6 +372,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Taucher-Statistiken"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Estadísticas del buceador"
           }
         },
         "fr-CA" : {
@@ -344,6 +410,12 @@
             "value" : "Nach Taucher filtern."
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Filtrar por nombre del buceador."
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -371,6 +443,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vom Tauchcomputer"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desde la computadora de buceo"
           }
         },
         "fr-CA" : {
@@ -403,6 +481,12 @@
             "value" : "Importiere einen Tauchgang via Bluetooth von deinem Tauchcomputer."
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importa una inmersión desde tu computadora de buceo por Bluetooth."
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -430,6 +514,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manuell erfassen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Registrar a mano"
           }
         },
         "fr-CA" : {
@@ -461,6 +551,12 @@
             "value" : "Längster"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Más larga"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -488,6 +584,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manuell"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Manual"
           }
         },
         "fr-CA" : {
@@ -520,6 +622,12 @@
             "value" : "Manueller Tauchgang"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inmersión manual"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -550,6 +658,12 @@
             "value" : "Erfasse schnell einen neuen Tauchgang manuell."
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Registra rápidamente una nueva inmersión a mano."
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -577,6 +691,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sieh dir deine wichtigsten Taucher-Statistiken auf einen Blick an."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Consulta tus estadísticas clave de buceador de un vistazo."
           }
         },
         "fr-CA" : {
@@ -609,6 +729,12 @@
             "value" : "Sieh dir auf einen Blick die Gesamtzahl deiner erfassten Tauchgänge an."
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Consulta de un vistazo el número total de inmersiones registradas."
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -638,6 +764,12 @@
             "value" : "Tauchgänge gesamt"
           }
         },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inmersiones totales"
+          }
+        },
         "fr-CA" : {
           "stringUnit" : {
             "state" : "translated",
@@ -665,6 +797,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gesamtzeit"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tiempo total"
           }
         },
         "fr-CA" : {

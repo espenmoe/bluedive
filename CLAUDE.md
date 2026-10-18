@@ -18,7 +18,9 @@ Do not estimate any data displayed or stored. All fields must be calculated or e
 
 Always use English (Canada) for labels, text, and comments in user-facing content.
 
-All public-facing text must be defined in code as localizable strings and translated in French (Canada), German, Dutch, and Norwegian Bokmål in the Localizable file. In SwiftUI views, use `LocalizedStringKey` (e.g. `Text("My Key")`) for direct text display. When building strings programmatically — including inside `Text(verbatim:)` with interpolation, even within SwiftUI views — use `NSLocalizedString(_:bundle:comment:)` with `Bundle.forAppLanguage()` instead of `String(localized:)`, because `String(localized:)` follows the OS language and ignores the in-app language override. Outside SwiftUI views (e.g. PDF generation, enum properties, model logic), always use `NSLocalizedString(_:bundle:comment:)` with `Bundle.forAppLanguage()`. Never wrap `NSLocalizedString` in a custom helper function (e.g. `L("key")`), because Xcode's string catalog compiler only detects keys from direct `NSLocalizedString` calls with literal strings — a wrapper hides the keys and causes Xcode to mark them as "Stale". When localizing data-model values from a known finite set of options (e.g. weather, current, tank type), use a `switch` with literal `NSLocalizedString` calls for each case so Xcode can detect every key; never pass a runtime variable as the key.
+All public-facing text must be defined in code as localizable strings and translated in French (Canada), German, Dutch, Norwegian Bokmål, and neutral Spanish in the Localizable file. In SwiftUI views, use `LocalizedStringKey` (e.g. `Text("My Key")`) for direct text display. When building strings programmatically — including inside `Text(verbatim:)` with interpolation, even within SwiftUI views — use `NSLocalizedString(_:bundle:comment:)` with `Bundle.forAppLanguage()` instead of `String(localized:)`, because `String(localized:)` follows the OS language and ignores the in-app language override. Outside SwiftUI views (e.g. PDF generation, enum properties, model logic), always use `NSLocalizedString(_:bundle:comment:)` with `Bundle.forAppLanguage()`. Never wrap `NSLocalizedString` in a custom helper function (e.g. `L("key")`), because Xcode's string catalog compiler only detects keys from direct `NSLocalizedString` calls with literal strings — a wrapper hides the keys and causes Xcode to mark them as "Stale". When localizing data-model values from a known finite set of options (e.g. weather, current, tank type), use a `switch` with literal `NSLocalizedString` calls for each case so Xcode can detect every key; never pass a runtime variable as the key.
+
+**Adding a new app language:** follow `ADDING_A_LANGUAGE.md` at the repository root (code changes, translation export/validation scripts, country names, layout checks, docs), built from the Dutch, Norwegian Bokmål and Spanish additions.
 
 ### In-App Language Override
 
@@ -37,33 +39,35 @@ The in-app language (Settings → Appearance & Language → Language, `UserPrefe
 
 ### Localizable.xcstrings — never edit by hand
 
-`BlueDive/Localizable.xcstrings` is ~1 MB / 38 000 lines. **Never open, read, grep-and-read, or hand-edit it, and never use a file-edit tool on it.** Reading any part of it into context is wasted time. All changes go through `Scripts/xcstrings.py`, which edits the JSON in place, preserves Xcode's exact formatting (byte-identical round-trip, minimal diff), and enforces the review-state rule automatically (`fr-CA` → `translated`; `de`, `nl` and `nb` → `needs_review`).
+`BlueDive/Localizable.xcstrings` is ~1 MB / 38 000 lines. **Never open, read, grep-and-read, or hand-edit it, and never use a file-edit tool on it.** Reading any part of it into context is wasted time. All changes go through `Scripts/xcstrings.py`, which edits the JSON in place, preserves Xcode's exact formatting (byte-identical round-trip, minimal diff), and enforces the review-state rule automatically (`fr-CA` → `translated`; `de`, `nl`, `nb` and `es` → `needs_review`).
 
-The `needs_review` state left on `de`/`nl`/`nb` is intentional, not a bug: a native reviewer promotes those to `translated` in Xcode's catalog editor (the script never writes `translated` for `de`/`nl`/`nb`), and a later re-translation via `set` correctly resets them to `needs_review` so the edit is re-reviewed.
+The `needs_review` state left on `de`/`nl`/`nb`/`es` is intentional, not a bug: a native reviewer promotes those to `translated` in Xcode's catalog editor (the script never writes `translated` for `de`/`nl`/`nb`/`es`), and a later re-translation via `set` correctly resets them to `needs_review` so the edit is re-reviewed.
 
 Workflow for every new or changed user-facing string:
 
 1. Write the Swift code with the literal key. For `NSLocalizedString`, always pass `value:` with the English text so the string displays before the catalog syncs, e.g. `NSLocalizedString("Service record saved.", bundle: Bundle.forAppLanguage(), value: "Service record saved.", comment: "")`.
 2. Build the project (⌘B) so Xcode inserts the key into the catalog. Do not add keys to the catalog yourself. A key that exists only inside `#if os(macOS)` (or only inside `#if os(iOS)`) is extracted only by a build for that platform — build the **My Mac** destination as well as an iOS destination when the change touches platform-specific code.
-3. Run `python3 Scripts/xcstrings.py missing` — it lists every key still lacking `fr-CA`, `de`, `nl` or `nb`. These are the only keys you translate.
+3. Run `python3 Scripts/xcstrings.py missing` — it lists every key still lacking `fr-CA`, `de`, `nl`, `nb` or `es`. These are the only keys you translate.
 4. Write the translations to a temp JSON file and apply them in one call:
    ```
    cat > /tmp/i18n.json <<'JSON'
    {
-     "Service record saved.": { "fr-CA": "Fiche d'entretien enregistrée.", "de": "Wartungseintrag gespeichert.", "nl": "Onderhoudsrecord opgeslagen.", "nb": "Servicepost lagret." }
+     "Service record saved.": { "fr-CA": "Fiche d'entretien enregistrée.", "de": "Wartungseintrag gespeichert.", "nl": "Onderhoudsrecord opgeslagen.", "nb": "Servicepost lagret.", "es": "Registro de mantenimiento guardado." }
    }
    JSON
    python3 Scripts/xcstrings.py set-json /tmp/i18n.json
    ```
-   For a single key: `python3 Scripts/xcstrings.py set "Key" --fr-CA "…" --de "…" --nl "…" --nb "…"`.
-   Plural keys take a dict per language: `"fr-CA": { "one": "%lld plongée", "other": "%lld plongées" }`. The script refuses to overwrite a plural with a plain string.
+   For a single key: `python3 Scripts/xcstrings.py set "Key" --fr-CA "…" --de "…" --nl "…" --nb "…" --es "…"`.
+   Plural keys take a dict per language: `"fr-CA": { "one": "%lld plongée", "other": "%lld plongées" }`; Spanish also takes `many` (CLDR), identical to `other`. The script refuses to overwrite a plural with a plain string.
 5. Run `python3 Scripts/xcstrings.py check` before committing; it exits non-zero if any translatable key is missing a language. Translations for a key ship in the same commit as the code that introduces it.
 
 **Run the script only after the build has finished and the catalog is not dirty in Xcode's editor.** The script does an unguarded read-modify-write; if Xcode has unsaved changes to the catalog (or a build is re-extracting strings) when the script writes, one side silently clobbers the other. After running the script, re-run `show`/`check` (or reopen the catalog) to confirm the edit survived.
 
 Other commands: `show "Key"` prints one entry. The `check` and `missing` commands are **per-file** — when you touch a widget string, run them against the widget catalog too. Put `--file` **after** the subcommand (it is a per-command option), e.g. `python3 Scripts/xcstrings.py check --file BlueDiveWidgetExtension/Localizable.xcstrings` or `python3 Scripts/xcstrings.py set "Key" --de "…" --file BlueDiveWidgetExtension/Localizable.xcstrings`. If `set` reports the key is not found, the build has not run yet — build, do not use `--create` (Xcode collates keys in localized order; a key appended by `--create` gets relocated on Xcode's next write, causing a large move-diff).
 
-Translation quality rules: keep `%lld`, `%@`, `%.1f` and other format specifiers unchanged and in the same order; French uses fr-CA conventions (espace insécable before `:`, `?`, `!`; `«»` quotes); German uses `„“` quotes; Norwegian uses `«»` quotes and "t" (time) as the hour abbreviation, as Dutch uses "u" (see `displaySurfaceInterval`); keep the same terminal punctuation as the English source.
+Translation quality rules: keep `%lld`, `%@`, `%.1f` and other format specifiers unchanged and in the same order; French uses fr-CA conventions (espace insécable before `:`, `?`, `!`; `«»` quotes); German uses `„“` quotes; Norwegian uses `«»` quotes and "t" (time) as the hour abbreviation, as Dutch uses "u" (see `displaySurfaceInterval`); Spanish is neutral (see below), uses `«»` quotes and opening `¿`/`¡`; keep the same terminal punctuation as the English source.
+
+**Spanish (`es`) is neutral Spanish**, for Spain and Latin America alike: the app ships a single `es` localization, and devices set to a regional Spanish (es-MX, es-419, es-ES…) all resolve to it. Write Spanish any reader understands without a regional flavour: address the user with "tú" (never "vosotros" or "vos"), and avoid words used in only one region — prefer the term understood everywhere ("costo", not Spain-only "coste"; "computadora de buceo", not "ordenador de buceo"). Use Apple's Spanish UI terms (Ajustes, Ajustes del Sistema, Listo, Añadir, Eliminar). Keep the glossary the existing translations use: inmersión (dive), buceador (diver), punto de inmersión (dive site), botella (tank), bibotella (twinset), lastre (weights/ballast), peso (gear weight), compañero (buddy), equipo (gear), viaje (trip), vida marina, especie, avistamiento (sighting), Muestras (the Samples tab), parada de seguridad, intervalo en superficie, tiempo (weather: "Obtener el tiempo"). Never add a regional Spanish localization (`es-ES`, `es-MX`, `es-419`) or translate a regional variant: it would split the catalog and leave the other regions on a partial translation.
 
 Fallback only if no shell is available in the current agent session: locate the key with a search for the exact text `"<key>" : {` (use the JSON-escaped form of the key — e.g. a key containing a newline is stored as `\n`, quotes as `\"`), read at most 15 lines around that line, and perform a single targeted replacement of the empty or comment-only entry with the full `localizations` block. Never read more than that, never reformat, never rewrite the file.
 
