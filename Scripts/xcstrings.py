@@ -2,10 +2,10 @@
 """Fast, safe editing of Xcode String Catalogs (.xcstrings) without reading the whole file.
 
 Usage:
-  Scripts/xcstrings.py missing                      # list keys lacking fr-CA / de / nl
+  Scripts/xcstrings.py missing                      # list keys lacking fr-CA / de / nl / nb
   Scripts/xcstrings.py show "Key text"              # print one key's entry
-  Scripts/xcstrings.py set "Key text" --fr-CA "..." --de "..." --nl "..."   [--en "..."]
-  Scripts/xcstrings.py set-json entries.json        # batch: {"Key": {"fr-CA": "...", "de": "...", "nl": "..."}, ...}
+  Scripts/xcstrings.py set "Key text" --fr-CA "..." --de "..." --nl "..." --nb "..."   [--en "..."]
+  Scripts/xcstrings.py set-json entries.json        # batch: {"Key": {"fr-CA": "...", "de": "...", "nl": "...", "nb": "..."}, ...}
                                                     # plural keys: {"fr-CA": {"one": "...", "other": "..."}, ...}
   Scripts/xcstrings.py check                        # exit 1 if any translatable key is missing a language
   Scripts/xcstrings.py remove "Key text" [--force]   # delete a key entirely (e.g. a stale,
@@ -17,14 +17,14 @@ Usage:
   Scripts/xcstrings.py check --file BlueDiveWidgetExtension/Localizable.xcstrings
 
 Options: --file PATH (default BlueDive/Localizable.xcstrings)
-Rules baked in (from CLAUDE.md): de and nl are always written with state "needs_review";
+Rules baked in (from CLAUDE.md): de, nl and nb are always written with state "needs_review";
 fr-CA is "translated". Output format is byte-identical to Xcode's own (2-space indent, " : ").
 """
 import argparse, json, sys, pathlib
 
-LANGS = ["fr-CA", "de", "nl"]
+LANGS = ["fr-CA", "de", "nl", "nb"]
 ALLOWED = {"en"} | set(LANGS)          # every language code the script may write
-REVIEW = {"de", "nl"}
+REVIEW = {"de", "nl", "nb"}
 PLURAL_ORDER = ["zero", "one", "two", "few", "many", "other"]  # CLDR order Xcode stores
 DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "BlueDive" / "Localizable.xcstrings"
 
@@ -139,7 +139,7 @@ def main():
         if a.cmd == "check" and m:
             sys.exit(1)
         if not m:
-            print("All translatable keys have fr-CA, de and nl.")
+            print("All translatable keys have " + ", ".join(LANGS) + ".")
     elif a.cmd == "show":
         e = d["strings"].get(a.key)
         # Use the catalog's own separators so show output can be copied verbatim into set-json.

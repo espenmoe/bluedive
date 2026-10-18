@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Centralised country-name-to-flag and accent-colour lookup.
-/// Supports English, French Canadian, German, and Dutch country names with accent-insensitive matching.
+/// Supports English, French Canadian, German, Dutch, and Norwegian Bokmål country names with accent-insensitive matching.
 enum CountryLookup {
 
     // MARK: - Public API
@@ -355,6 +355,58 @@ enum CountryLookup {
         // Z
         "zuid-afrika": "za", "zuid-korea": "kr", "zuid-soedan": "ss",
         "zweden": "se", "zwitserland": "ch",
+        // Norwegian Bokmål (nb) country names
+        // A
+        "amerikansk samoa": "as", "amerikas forente stater": "us", "antigua og barbuda": "ag",
+        "aserbajdsjan": "az",
+        // B
+        "belgia": "be", "bosnia-hercegovina": "ba", "bosnia og hercegovina": "ba",
+        "brasil": "br",
+        // C
+        "caymanøyene": "ky", "cookøyene": "ck",
+        // D
+        "danmark": "dk", "de amerikanske jomfruøyene": "vi", "de britiske jomfruøyene": "vg",
+        "de forente arabiske emirater": "ae", "den demokratiske republikken kongo": "cd", "den dominikanske republikk": "do",
+        "den sentralafrikanske republikk": "cf",
+        // E
+        "ekvatorial-guinea": "gq", "elfenbenskysten": "ci", "etiopia": "et",
+        // F
+        "filippinene": "ph", "forente arabiske emirater": "ae", "frankrike": "fr",
+        "fransk guyana": "gf", "fransk polynesia": "pf", "færøyene": "fo",
+        // G
+        "grønland": "gl",
+        // H
+        "hellas": "gr", "hviterussland": "by",
+        // I
+        "italia": "it",
+        // K
+        "kambodsja": "kh", "kapp verde": "cv", "kasakhstan": "kz",
+        "kina": "cn", "komorene": "km", "kroatia": "hr",
+        "kypros": "cy",
+        // M
+        "maldivene": "mv", "marshalløyene": "mh", "mikronesia": "fm",
+        "mikronesiaføderasjonen": "fm",
+        // N
+        "nord-korea": "kp", "nord-makedonia": "mk", "norge": "no",
+        "ny-caledonia": "nc",
+        // P
+        "papua ny-guinea": "pg",
+        // S
+        "saint kitts og nevis": "kn", "saint vincent og grenadinene": "vc", "salomonøyene": "sb",
+        "saudi-arabia": "sa", "seychellene": "sc", "spania": "es",
+        "storbritannia": "gb", "surinam": "sr", "sveits": "ch",
+        "sverige": "se", "sør-afrika": "za", "sør-korea": "kr",
+        "sør-sudan": "ss",
+        // T
+        "tadsjikistan": "tj", "trinidad og tobago": "tt", "tsjad": "td",
+        "tsjekkia": "cz", "turks- og caicosøyene": "tc", "tyrkia": "tr",
+        "tyskland": "de",
+        // U
+        "ukraina": "ua",
+        // V
+        "vatikanstaten": "va", "vest-sahara": "eh",
+        // Ø
+        "øst-timor": "tl", "østerrike": "at",
     ]
 
     // MARK: - ISO code → accent colour

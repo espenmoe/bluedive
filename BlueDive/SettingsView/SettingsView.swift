@@ -337,6 +337,7 @@ enum AppLanguage: String, CaseIterable {
     case frenchCanada = "fr-CA"
     case german = "de"
     case dutch = "nl"
+    case norwegianBokmal = "nb"
 
     /// Picker label. Language names are shown as endonyms (each in its own
     /// language) and are intentionally NOT localized — only "System" follows
@@ -349,6 +350,7 @@ enum AppLanguage: String, CaseIterable {
         case .frenchCanada: return "Français"
         case .german:       return "Deutsch"
         case .dutch:        return "Nederlands"
+        case .norwegianBokmal: return "Norsk bokmål"
         }
     }
 
@@ -371,6 +373,7 @@ enum AppLanguage: String, CaseIterable {
         case .frenchCanada: return Locale(identifier: "fr-CA")
         case .german: return Locale(identifier: "de")
         case .dutch: return Locale(identifier: "nl")
+        case .norwegianBokmal: return Locale(identifier: "nb")
         }
     }
 }

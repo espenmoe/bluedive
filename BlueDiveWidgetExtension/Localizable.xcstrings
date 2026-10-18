@@ -21,6 +21,12 @@
             "value" : "%@ h"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ t"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -42,6 +48,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ h %@ min"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ t %@ min"
           }
         },
         "nl" : {
@@ -67,6 +79,12 @@
             "value" : "%@ min"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ min"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -88,6 +106,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tous les plongeurs"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle dykkere"
           }
         },
         "nl" : {
@@ -121,6 +145,12 @@
             "value" : "Plongée Bluetooth"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bluetooth-dykk"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -142,6 +172,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisissez les statistiques du plongeur à afficher."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg hvilken dykkers statistikk som skal vises."
           }
         },
         "nl" : {
@@ -167,6 +203,12 @@
             "value" : "Depuis (jours)"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dager siden"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -188,6 +230,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Plus profonde"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dypeste"
           }
         },
         "nl" : {
@@ -214,6 +262,12 @@
             "value" : "Nombre de plongées"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Antall dykk"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -237,6 +291,12 @@
             "value" : "Plongeur"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dykker"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -258,6 +318,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Statistiques du plongeur"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dykkerstatistikk"
           }
         },
         "nl" : {
@@ -284,6 +350,12 @@
             "value" : "Filtrer par nom de plongeur."
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Filtrer etter dykkernavn."
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -305,6 +377,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Depuis l'ordinateur de plongée"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra dykkecomputer"
           }
         },
         "nl" : {
@@ -331,6 +409,12 @@
             "value" : "Importez une plongée depuis votre ordinateur de plongée via Bluetooth."
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importer et dykk fra dykkecomputeren din via Bluetooth."
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -352,6 +436,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Saisir manuellement"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Logg manuelt"
           }
         },
         "nl" : {
@@ -377,6 +467,12 @@
             "value" : "La plus longue"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lengste"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -398,6 +494,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manuel"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Manuelt"
           }
         },
         "nl" : {
@@ -424,6 +526,12 @@
             "value" : "Plongée manuelle"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Manuelt dykk"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -448,6 +556,12 @@
             "value" : "Notez rapidement une nouvelle plongée manuellement."
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Logg raskt et nytt dykk manuelt."
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -469,6 +583,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Consultez vos statistiques de plongeur en un coup d'œil."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se den viktigste dykkerstatistikken din raskt."
           }
         },
         "nl" : {
@@ -495,6 +615,12 @@
             "value" : "Consultez votre nombre total de plongées enregistrées en un coup d'œil."
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se totalt antall loggførte dykk raskt."
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -518,6 +644,12 @@
             "value" : "Plongées totales"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Totalt antall dykk"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -539,6 +671,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Temps total"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Total tid"
           }
         },
         "nl" : {

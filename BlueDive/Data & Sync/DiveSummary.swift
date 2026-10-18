@@ -81,6 +81,13 @@ struct DiveSummary: Identifiable, Hashable, Sendable {
                 with: "$1u",
                 options: .regularExpression
             )
+        case "nb":
+            // Norwegian "t" (time) for hours, matching shortFormattedDuration; "d" (døgn) stays.
+            return surfaceInterval.replacingOccurrences(
+                of: #"(\d+)h\b"#,
+                with: "$1t",
+                options: .regularExpression
+            )
         default:
             return surfaceInterval
         }

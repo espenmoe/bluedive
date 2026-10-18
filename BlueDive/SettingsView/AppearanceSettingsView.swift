@@ -28,12 +28,12 @@ struct AppearanceSettingsView: View {
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.03)))
 
                     #if os(macOS)
-                    Text("Choose System to use your device's language (System Settings → General → Language & Region), or override with English, Français, Deutsch, or Nederlands. Switching from or to System will close Settings to apply the change.")
+                    Text("Choose System to use your device's language (System Settings → General → Language & Region), or override with English, Français, Deutsch, Nederlands, or Norsk bokmål. Switching from or to System will close Settings to apply the change.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
                     #else
-                    Text("Choose System to use your device's language (Settings → General → Language & Region), or override with English, Français, Deutsch, or Nederlands. Switching from or to System will close Settings to apply the change.")
+                    Text("Choose System to use your device's language (Settings → General → Language & Region), or override with English, Français, Deutsch, Nederlands, or Norsk bokmål. Switching from or to System will close Settings to apply the change.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)

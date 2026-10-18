@@ -1294,7 +1294,7 @@ final class Dive {
     /// Localized surface interval for display.
     /// The database stores English abbreviations (e.g. "1d 2h 30m").
     /// This property adapts the abbreviations for the current app language: the day in
-    /// French ("d" → "j"), the hour in Dutch ("h" → "u"). Minutes are unchanged.
+    /// French ("d" → "j"), the hour in Dutch ("h" → "u") and Norwegian ("h" → "t"). Minutes are unchanged.
     var displaySurfaceInterval: String {
         let locale = UserPreferences.shared.languageMode.locale ?? Locale.current
         // Display only: the stored string keeps the "2d 3h 05m" form it was imported with.
@@ -1310,6 +1310,13 @@ final class Dive {
             return surfaceInterval.replacingOccurrences(
                 of: #"(\d+)h\b"#,
                 with: "$1u",
+                options: .regularExpression
+            )
+        case "nb":
+            // Norwegian "t" (time) for hours, matching shortFormattedDuration; "d" (døgn) stays.
+            return surfaceInterval.replacingOccurrences(
+                of: #"(\d+)h\b"#,
+                with: "$1t",
                 options: .regularExpression
             )
         default:

@@ -21,6 +21,12 @@
             "value" : "Journal de plongée BlueDive"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "BlueDive-dykkelogg"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -75,6 +81,12 @@
             "value" : "Activité Garmin FIT"
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Garmin FIT-aktivitet"
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -102,6 +114,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BlueDive utilise le Bluetooth pour se connecter à votre ordinateur de plongée."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "BlueDive bruker Bluetooth til å koble til dykkecomputeren din."
           }
         },
         "nl" : {
@@ -133,6 +151,12 @@
             "value" : "BlueDive utilise votre position pour l'afficher sur la carte de plongée."
           }
         },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "BlueDive bruker posisjonen din til å vise hvor du er på dykkekartet."
+          }
+        },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
@@ -153,6 +177,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Journal de plongée Subsurface"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Subsurface-dykkelogg"
           }
         },
         "nl" : {

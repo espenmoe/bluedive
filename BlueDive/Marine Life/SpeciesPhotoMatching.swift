@@ -278,12 +278,17 @@ enum ScientificNameDetector {
     /// the last article ("A green sea turtle (…)" → "green sea turtle"), else from the first
     /// capitalised word, and after the last lower-case word followed by a capitalised one
     /// ("Diver with Giant Moray (…)" → "Giant Moray"); at most four words. One word after a
-    /// comma is usually a place ("Seal, Wales (…)"): no hint.
+    /// comma is usually a place ("Seal, Wales (…)"): no hint. The Norwegian articles ("en",
+    /// "ei", "et") are also ordinary French words ("en" = in, "et" = and), so they count only
+    /// when the app is in Norwegian, leaving other users' imports unchanged.
     private static func commonNameHint(before: String) -> String? {
         let segments = before.split(whereSeparator: { ",;:.".contains($0) })
         let segment = segments.last.map(String.init) ?? ""
         var words = segment.split(whereSeparator: \.isWhitespace).map(String.init)
-        let articles: Set<String> = ["a", "an", "the", "un", "une", "le", "la", "les", "der", "die", "das", "ein", "eine", "de", "het", "een"]
+        var articles: Set<String> = ["a", "an", "the", "un", "une", "le", "la", "les", "der", "die", "das", "ein", "eine", "de", "het", "een"]
+        if UserPreferences.shared.languageMode.effective == .norwegianBokmal {
+            articles.formUnion(["en", "ei", "et"])
+        }
         if let last = words.lastIndex(where: { articles.contains($0.lowercased()) }) {
             words = Array(words[(last + 1)...])
         } else {

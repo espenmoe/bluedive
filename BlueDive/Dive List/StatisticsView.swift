@@ -252,8 +252,13 @@ struct StatisticsView: View {
         }
         let isFrench = locale.language.languageCode?.identifier == "fr"
         let daySuffix = isFrench ? "j" : "d"
-        // Dutch "u" (uur), as in the dive list's surface interval and duration badges.
-        let hourSuffix = locale.language.languageCode?.identifier == "nl" ? "u" : "h"
+        // Dutch "u" (uur) and Norwegian "t" (time), as in the dive list's surface interval and duration badges.
+        let hourSuffix: String
+        switch locale.language.languageCode?.identifier {
+        case "nl": hourSuffix = "u"
+        case "nb": hourSuffix = "t"
+        default: hourSuffix = "h"
+        }
         func formatIntervalMinutes(_ minutes: Int) -> String {
             if minutes < 60 { return "\(minutes)m" }
             if minutes < 1440 {
