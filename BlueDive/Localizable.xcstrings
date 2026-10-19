@@ -34,7 +34,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "\n… %lld linjer til. Bruk Kopier eller Arkiver som for å se hele innholdet."
           }
         },
@@ -120,7 +120,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "«%@» slettes permanent. Alle tilknyttede data (observasjoner av fisk, utstyr) slettes også."
           }
         },
@@ -162,7 +162,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "*"
           }
         },
@@ -204,7 +204,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "* RMV beregnet fra %1$@ + %2$@ – bare tilgjengelig direkte i bar/L"
           }
         },
@@ -246,7 +246,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "* RMV utledet fra %1$@ + %2$@ ved hjelp av lagret arbeidstrykk for konvertering fra cu ft → L"
           }
         },
@@ -281,7 +281,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "* RMV for noen dykk er beregnet fra andre enheter enn bar og liter."
           }
         },
@@ -329,7 +329,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ bruker allerede dette navnet."
           }
         },
@@ -370,7 +370,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ land besøkt"
           }
         },
@@ -411,7 +411,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ land besøkt"
           }
         },
@@ -452,7 +452,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dager"
           }
         },
@@ -493,7 +493,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dykk"
           }
         },
@@ -534,7 +534,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dykk"
           }
         },
@@ -569,7 +569,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dykk finnes allerede i loggboken"
           }
         },
@@ -604,7 +604,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dykk finnes allerede"
           }
         },
@@ -645,7 +645,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dykk på dette stedet"
           }
         },
@@ -680,7 +680,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "%@ dykk importert"
           }
         },
@@ -1320,16 +1320,16 @@
         "es" : {
           "variations" : {
             "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%d filtro activo"
-                }
-              },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
                   "value" : "%d filtros activos"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%d filtro activo"
                 }
               },
               "other" : {
@@ -1698,16 +1698,16 @@
         "es" : {
           "variations" : {
             "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%lld inmersión"
-                }
-              },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
                   "value" : "%lld inmersiones"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld inmersión"
                 }
               },
               "other" : {
@@ -1805,16 +1805,16 @@
         "es" : {
           "variations" : {
             "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%lld inmersión"
-                }
-              },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
                   "value" : "%lld inmersiones"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld inmersión"
                 }
               },
               "other" : {
@@ -2300,16 +2300,16 @@
         "es" : {
           "variations" : {
             "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%lld nombre no está en el catálogo."
-                }
-              },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
                   "value" : "%lld nombres no están en el catálogo."
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld nombre no está en el catálogo."
                 }
               },
               "other" : {
@@ -2545,16 +2545,16 @@
         "es" : {
           "variations" : {
             "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "needs_review",
-                  "value" : "%lld estrella"
-                }
-              },
               "many" : {
                 "stringUnit" : {
                   "state" : "needs_review",
                   "value" : "%lld estrellas"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "%lld estrella"
                 }
               },
               "other" : {
