@@ -25554,7 +25554,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Hent vanlige navn på %@"
           }
         },
@@ -25590,7 +25590,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Hent navn"
           }
         },
@@ -26853,7 +26853,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Fisk"
           }
         },
@@ -26888,7 +26888,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Tåke"
           }
         },
@@ -26924,7 +26924,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "For arter som allerede er koblet til iNaturalist, hentes det vanlige navnet på dette språket, slik at de vises på det. Bare artens iNaturalist-nummer og språket sendes; navnene du har lagt inn, endres ikke."
           }
         },
