@@ -31777,7 +31777,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importer fra Filer"
           }
         },
@@ -31819,7 +31819,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importer utstyr"
           }
         },
@@ -31860,7 +31860,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importvalg"
           }
         },
@@ -31896,7 +31896,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importer bilder"
           }
         },
@@ -31932,7 +31932,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importer arter"
           }
         },
@@ -31972,7 +31972,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importen var vellykket"
           }
         },
@@ -32013,7 +32013,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importenheter"
           }
         },
@@ -32055,7 +32055,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Viktig melding"
           }
         },
@@ -32091,7 +32091,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importert"
           }
         },
@@ -32133,7 +32133,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Format for importerte data"
           }
         },
@@ -32168,7 +32168,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importert: %@"
           }
         },
@@ -32209,7 +32209,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importerer %lld dykk …"
           }
         },
@@ -32250,7 +32250,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importerer 1 dykk …"
           }
         },
@@ -32284,7 +32284,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importerer bilder"
           }
         },
@@ -32320,7 +32320,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importerer bilder …"
           }
         },
@@ -32362,7 +32362,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Importerer …"
           }
         },
@@ -32397,7 +32397,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "in"
           }
         },
@@ -32438,7 +32438,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "I filen"
           }
         },
@@ -32474,7 +32474,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Inaktiv"
           }
         },
@@ -32514,7 +32514,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Inaktivt utstyr"
           }
         },
@@ -32549,7 +32549,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kunne ikke nå iNaturalist. Sjekk tilkoblingen og prøv igjen."
           }
         },
@@ -32590,7 +32590,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Inkluder"
           }
         },
@@ -32632,7 +32632,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Inkluder utstyr fra filen"
           }
         },
@@ -32673,7 +32673,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Inkluder GPS-koordinater (inngang og utgang)"
           }
         },
@@ -32709,7 +32709,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Informasjon"
           }
         },
@@ -32751,7 +32751,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Instruktør"
           }
         },
@@ -32791,7 +32791,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Instruktørens navn"
           }
         },
@@ -32833,7 +32833,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Instruktørens navn (valgfritt)"
           }
         },
@@ -32873,7 +32873,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Instruktørnummer"
           }
         },
@@ -32913,7 +32913,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Instruktørnummer (valgfritt)"
           }
         },
@@ -32954,7 +32954,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Forsikring"
           }
         },
@@ -32995,7 +32995,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Forsikring utløper"
           }
         },
@@ -33037,7 +33037,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Forsikringer"
           }
         },
@@ -33079,7 +33079,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Forsikringsselskap"
           }
         },
@@ -33119,7 +33119,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Forsikringsselskapets navn"
           }
         },
@@ -33159,7 +33159,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Introanimasjon"
           }
         },
@@ -33200,7 +33200,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Ugyldig beløp."
           }
         },
@@ -33241,7 +33241,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Ugyldig heksadesimal verdi"
           }
         },
@@ -33283,7 +33283,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Utstedelsesdato"
           }
         },
@@ -33324,7 +33324,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Behold «%1$@» (%2$@) og legg til målepunkter fra «%3$@» (%4$@). Det andre dykket blir slettet."
           }
         },
@@ -33360,7 +33360,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Behold begge"
           }
         },
@@ -33402,7 +33402,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Ha dykkerinformasjon, nødkontakter og forsikringsdetaljer lett tilgjengelig."
           }
         },
@@ -33444,7 +33444,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kelvin (°K)"
           }
         },
@@ -33484,7 +33484,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Beholdt fra loggboken din"
           }
         },
@@ -33518,7 +33518,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Viktige bidragsytere fra fellesskapet"
           }
         },
@@ -33560,7 +33560,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "kg"
           }
         },
@@ -33602,7 +33602,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kilogram (kg)"
           }
         },
@@ -33637,7 +33637,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Rike"
           }
         },
@@ -33679,7 +33679,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kjente dykkecomputere"
           }
         },
@@ -33719,7 +33719,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Språk"
           }
         },
@@ -33760,7 +33760,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Siste 15 minutter med synkroniseringsaktivitet"
           }
         },
@@ -33801,7 +33801,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Siste 15 minutter med synkroniseringsaktivitet."
           }
         },
@@ -33843,7 +33843,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Siste vedlikehold"
           }
         },
@@ -33879,7 +33879,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Sist sett"
           }
         },
@@ -33921,7 +33921,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Sist synkronisert %@"
           }
         },
@@ -33963,7 +33963,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Breddegrad"
           }
         },
@@ -34005,7 +34005,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "lb"
           }
         },
@@ -34047,7 +34047,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Eldre notat"
           }
         },
@@ -34089,7 +34089,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Forklaring"
           }
         },
@@ -34131,7 +34131,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Mindre"
           }
         },
@@ -34173,7 +34173,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Nivå"
           }
         },
@@ -34214,7 +34214,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Lyst"
           }
         },
@@ -34250,7 +34250,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Begrens import etter dato"
           }
         },
@@ -34286,7 +34286,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Koble til"
           }
         },
@@ -34322,7 +34322,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Koble til observasjoner"
           }
         },
@@ -34363,7 +34363,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vil du koble observasjonene med navnet «%1$@» til %2$@?"
           }
         },
@@ -34398,7 +34398,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Koble til %@"
           }
         },
@@ -34434,7 +34434,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Koble til en eksisterende art …"
           }
         },
@@ -34468,7 +34468,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Koble til art"
           }
         },
@@ -34504,7 +34504,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Ved kobling beholdes navnet observasjonen ble registrert med."
           }
         },
@@ -34545,7 +34545,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Liter"
           }
         },
@@ -34581,7 +34581,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Liter (L)"
           }
         },
@@ -34623,7 +34623,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Sted"
           }
         },
@@ -34665,7 +34665,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Loggfør dykk manuelt med full kontroll over dato, dybde, varighet og alle detaljer."
           }
         },
@@ -34749,7 +34749,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Loggfør service"
           }
         },
@@ -34791,7 +34791,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Lengst"
           }
         },
@@ -34833,7 +34833,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Lengste dykk"
           }
         },
@@ -34875,7 +34875,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Lengdegrad"
           }
         },
@@ -34909,7 +34909,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå opp igjen"
           }
         },
@@ -34945,7 +34945,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå opp på iNaturalist"
           }
         },
@@ -34981,7 +34981,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå opp arter på iNaturalist"
           }
         },
@@ -35017,7 +35017,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vil du slå opp arter på iNaturalist?"
           }
         },
@@ -35058,7 +35058,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Leter etter dykkecomputeren din …"
           }
         },
@@ -35092,8 +35092,8 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Leter på nytt etter artene iNaturalist ikke fant, i tilfelle det vitenskapelige navnet har endret seg siden (for eksempel en ny slekt). Bare et tidligere navn som iNaturalist bekrefter, kobler en art. Arter du valgte å ikke koble, forblir ukoblet."
+            "state" : "translated",
+            "value" : "Leter på nytt etter artene iNaturalist ikke fant, i tilfelle det vitenskapelige navnet har endret seg (for eksempel en ny slekt). Bare et tidligere navn som iNaturalist bekrefter kobler en art. Arter du valgte å ikke koble forblir ukoblet."
           }
         },
         "nl" : {
@@ -35126,7 +35126,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slår opp alle arter som har et vitenskapelig navn og ikke er koblet til iNaturalist ennå. Bare eksakte treff på vitenskapelig navn, eller et tidligere vitenskapelig navn som iNaturalist bekrefter, brukes. Andre arter kan slås opp én og én fra siden sin. Bare artsnavnet sendes."
           }
         },
@@ -35161,7 +35161,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Treff med lav sikkerhet"
           }
         },
@@ -35202,7 +35202,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Strømsparingsmodus"
           }
         },
@@ -35243,7 +35243,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Strømsparingsmodus er på – iCloud-synkronisering kan gå tregere. Slå den av i Innstillinger > Batteri."
           }
         },
@@ -35285,7 +35285,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Hovedinformasjon"
           }
         },
@@ -35327,7 +35327,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold"
           }
         },
@@ -35369,7 +35369,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold og notater"
           }
         },
@@ -35411,7 +35411,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold forfaller snart."
           }
         },
@@ -35453,7 +35453,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikeholdshistorikk"
           }
         },
@@ -35494,7 +35494,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold forfaller %@ (%@ dager igjen)."
           }
         },
@@ -35535,7 +35535,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold forfaller %@ (1 dag igjen)."
           }
         },
@@ -35576,7 +35576,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold forfaller i dag (%@)."
           }
         },
@@ -35617,7 +35617,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold forfalt %@ (for %@ dager siden)."
           }
         },
@@ -35658,7 +35658,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vedlikehold forfalt %@ (for 1 dag siden)."
           }
         },
@@ -35700,7 +35700,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kontroller at dykkecomputeren er slått på og i Bluetooth-overføringsmodus."
           }
         },
@@ -35742,7 +35742,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Obligatorisk stopp"
           }
         },
@@ -35784,7 +35784,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Manuell registrering"
           }
         },
@@ -35826,7 +35826,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Produsent"
           }
         },
@@ -35867,7 +35867,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Mange"
           }
         },
@@ -35908,7 +35908,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kart"
           }
         },
@@ -35950,7 +35950,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Kartstil"
           }
         },
@@ -36152,7 +36152,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Sjøpattedyr"
           }
         },
@@ -36194,7 +36194,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Marine observasjoner"
           }
         },
@@ -36236,7 +36236,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Registrer et vedlikehold for å starte automatisk oppfølging av utstyret ditt"
           }
         },
@@ -36278,7 +36278,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Merk som utført service"
           }
         },
@@ -36320,7 +36320,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Registrer det første vedlikeholdet for å starte oppfølgingen"
           }
         },
@@ -36355,7 +36355,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Samsvarer (%@)"
           }
         },
@@ -36397,7 +36397,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Materiale"
           }
         },
@@ -36439,7 +36439,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks."
           }
         },
@@ -36481,7 +36481,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "MAKS."
           }
         },
@@ -36523,7 +36523,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks. dybde"
           }
         },
@@ -36563,7 +36563,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks. dybde (%@)"
           }
         },
@@ -36603,7 +36603,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks. PO₂ (ATA)"
           }
         },
@@ -36643,7 +36643,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks. temp."
           }
         },
@@ -36685,7 +36685,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks. temp."
           }
         },
@@ -36726,7 +36726,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks."
           }
         },
@@ -36766,7 +36766,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maksimal / dekostopp-grense"
           }
         },
@@ -36806,7 +36806,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Maks. temperatur"
           }
         },
@@ -36841,7 +36841,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Treff med middels sikkerhet"
           }
         },
@@ -36883,7 +36883,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå sammen"
           }
         },
@@ -36924,7 +36924,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vil du slå sammen %1$@ med %2$@?"
           }
         },
@@ -36966,7 +36966,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå sammen dykk"
           }
         },
@@ -37008,7 +37008,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Vil du slå sammen dykkene?"
           }
         },
@@ -37044,7 +37044,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå sammen med"
           }
         },
@@ -37080,7 +37080,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå sammen med en annen art …"
           }
         },
@@ -37114,7 +37114,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Slå sammen arter"
           }
         },
@@ -37149,7 +37149,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Meter"
           }
         },
@@ -37185,7 +37185,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Meter (m)"
           }
         },
@@ -37226,7 +37226,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Metrisk"
           }
         },
@@ -37267,7 +37267,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Milepæler teller dykk for alle dykkere samlet. Anbefales ikke når flere dykkere deler denne appen."
           }
         },
@@ -37309,7 +37309,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Milepæler nådd"
           }
         },
@@ -37350,7 +37350,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "min"
           }
         },
@@ -37391,7 +37391,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Min."
           }
         },
@@ -37431,7 +37431,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Min. temp."
           }
         },
@@ -37473,7 +37473,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "MIN. TEMP."
           }
         },
@@ -37515,7 +37515,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Min. temp."
           }
         },
@@ -37556,7 +37556,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Min."
           }
         },
@@ -37597,7 +37597,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Min. må være mindre enn maks."
           }
         },
@@ -37637,7 +37637,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimumsgass"
           }
         },
@@ -37677,7 +37677,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimumsgass (MG)"
           }
         },
@@ -37758,7 +37758,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimumsgass-kalkulator"
           }
         },
@@ -37798,7 +37798,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimum er 40 bar"
           }
         },
@@ -37838,7 +37838,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimum er 600 psi"
           }
         },
@@ -37880,7 +37880,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimumsvurdering"
           }
         },
@@ -37920,7 +37920,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minimumstemperatur"
           }
         },
@@ -37955,7 +37955,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Minutter: %@"
           }
         },
@@ -37997,7 +37997,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Modell"
           }
         },
@@ -38038,7 +38038,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Modell-ID"
           }
         },
@@ -38080,7 +38080,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Moderat"
           }
         },
@@ -38121,7 +38121,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Moderat–krevende"
           }
         },
@@ -38156,7 +38156,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Bløtdyr"
           }
         },
@@ -38198,7 +38198,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Måned"
           }
         },
@@ -38240,7 +38240,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Mer"
           }
         },
@@ -38282,7 +38282,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Mest observerte skapninger"
           }
         },
@@ -38323,7 +38323,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Flytt"
           }
         },
@@ -38364,7 +38364,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Flytt dykk"
           }
         },
@@ -38400,7 +38400,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Flyttet fra et annet dykk"
           }
         },
@@ -38435,7 +38435,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Flyttet fra et annet dykk: %@"
           }
         },
@@ -38475,7 +38475,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "RMV/SAC med flere flasker krever data fra dykkecomputer"
           }
         },
@@ -38515,7 +38515,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Multiplikator (×)"
           }
         },
@@ -38555,7 +38555,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Må være 1,0 eller høyere"
           }
         },
@@ -38595,7 +38595,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Må være større enn 0"
           }
         },
@@ -38637,7 +38637,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Mine turer"
           }
         },
@@ -38679,7 +38679,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Navn"
           }
         },
@@ -38713,7 +38713,7 @@
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Navn"
           }
         },
